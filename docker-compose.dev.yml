@@ -1,0 +1,11 @@
+services:
+  bot:
+    environment:
+      APP_ENV: dev
+    command: ["uv", "run", "--group", "dev", "watchfiles", "--filter", "python", "python -m src.main", "src"]
+    volumes:
+      - ./:/opt/app
+      - bot-dev-venv:/opt/app/.venv
+
+volumes:
+  bot-dev-venv:

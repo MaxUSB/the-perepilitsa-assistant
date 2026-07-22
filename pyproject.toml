@@ -1,0 +1,53 @@
+# PROJECT
+
+[project]
+name = "the-perepilitsa-assistant"
+version = "1.0.0"
+
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "aiogram==3.30.0",
+    "aiofiles==25.1.0",
+    "aiohttp-socks==0.11.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.2",
+    "yt-dlp==2026.7.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.15.20",
+    "ty==0.0.55",
+    "watchfiles==1.2.0",
+]
+
+
+# RUFF
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+exclude = [".vscode", ".git", ".venv"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+    "FAST", "ANN", "ASYNC", "S", "BLE", "FBT", "B", "A", "C4", "DTZ", "EM", "ISC", "ICN", "LOG", "G", "INP", "PIE", 
+    "T20", "PYI", "Q", "RET", "SLF", "SIM", "ARG", "I", "PD", "N", "E", "W", "F", "PGH", "PL", "UP", "FURB", "RUF",
+    "TRY"
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["S101"]
+
+
+# PYTEST
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]

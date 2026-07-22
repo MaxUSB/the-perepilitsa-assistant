@@ -1,0 +1,5 @@
+services:
+  bot:
+    environment:
+      APP_ENV: prod
+    command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "src.main"]

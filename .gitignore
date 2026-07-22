@@ -1,0 +1,14 @@
+# DEVELOPMENT
+.vscode/
+
+# ENV
+.venv/
+.env
+
+# CACHES
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+
+# APP
+.runtime/
