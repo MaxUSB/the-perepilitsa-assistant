@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Annotated
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class BotConfig(BaseSettings):
@@ -14,7 +15,7 @@ class BotConfig(BaseSettings):
     )
 
     token: SecretStr = Field(default=SecretStr(""), validation_alias=AliasChoices("BOT_TOKEN"))
-    allowed_user_ids: frozenset[int] = Field(
+    allowed_user_ids: Annotated[frozenset[int], NoDecode] = Field(
         default=frozenset(),
         validation_alias=AliasChoices("BOT_ALLOWED_USER_IDS"),
     )
