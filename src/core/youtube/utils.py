@@ -119,6 +119,14 @@ def build_progress_caption(snapshot: YoutubeDownloadProgressSnapshot) -> str:
     progress = 0.0 if total_bytes == 0 else downloaded_bytes / total_bytes
     eta_text = format_duration(snapshot.eta_seconds)
     speed_text = format_bytes(int(snapshot.speed_bytes_per_second)) if snapshot.speed_bytes_per_second else "unknown"
+    if snapshot.phase == "upload":
+        return (
+            "<b>📤 Uploading To Telegram</b>\n"
+            "━━━━━━━━━━━━━━\n"
+            f"<code>{render_progress_bar(progress)} {progress * 100:05.1f}%</code>\n\n"
+            f"<b>📦 Uploaded:</b> {format_bytes(downloaded_bytes)} / {format_bytes(snapshot.total_bytes)}\n"
+            "<i>Telegram is receiving the file...</i>"
+        )
 
     return (
         "<b>⬇️ Download In Progress</b>\n"

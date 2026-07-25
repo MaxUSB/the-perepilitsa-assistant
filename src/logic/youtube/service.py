@@ -7,10 +7,10 @@ from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramEntityTooLarge
-from aiogram.types import FSInputFile, Message
+from aiogram.types import Message
 
 from src.core.bot.config import BotConfig
-from src.core.youtube.client import YoutubeClient
+from src.core.youtube.client import YoutubeClient, YoutubeProgressCallback
 from src.core.youtube.config import YoutubeConfig
 from src.core.youtube.models import (
     YoutubeDownloadOption,
@@ -26,6 +26,7 @@ from src.core.youtube.utils import (
 )
 from src.logic.youtube.client import YoutubeAuthenticationRequiredError, YoutubeBrowserCookiesUnsupportedError
 from src.logic.youtube.store import YoutubeRequestStore
+from src.logic.youtube.upload import ProgressFSInputFile
 
 LOGGER = logging.getLogger(__name__)
 
@@ -140,7 +141,13 @@ class YoutubeService:
                 request_id=request_id,
                 progress_callback=progress_callback,
             )
-            await self._send_result_message(bot=bot, request=request, option=option, result_file=result.file_path)
+            await self._send_result_message(
+                bot=bot,
+                request=request,
+                option=option,
+                result_file=result.file_path,
+                progress_callback=progress_callback,
+            )
             await self._safe_delete_message(bot=bot, chat_id=request.chat_id, message_id=progress_message_id)
             if self._bot_config.delete_source_message:
                 await self._safe_delete_message(
@@ -192,6 +199,7 @@ class YoutubeService:
         request: YoutubeDownloadRequest,
         option: YoutubeDownloadOption,
         result_file: Path,
+        progress_callback: YoutubeProgressCallback,
     ) -> None:
         file_size_bytes = await asyncio.to_thread(lambda: result_file.stat().st_size)
         if file_size_bytes > self.telegram_upload_limit_bytes:
@@ -207,7 +215,7 @@ class YoutubeService:
         try:
             await bot.send_video(
                 chat_id=request.chat_id,
-                video=FSInputFile(result_file),
+                video=ProgressFSInputFile(result_file, progress_callback=progress_callback),
                 caption=result_caption,
                 supports_streaming=True,
             )

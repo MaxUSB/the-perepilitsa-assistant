@@ -41,6 +41,7 @@ class YoutubeDownloadProgressSnapshot(BaseModel):
     speed_bytes_per_second: float | None = None
     eta_seconds: int | None = None
     filename: str | None = None
+    phase: str = "download"
 
 
 class YoutubeDownloadResult(BaseModel):
