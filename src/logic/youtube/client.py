@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 from src.core.youtube.client import YoutubeProgressCallback
 from src.core.youtube.config import YoutubeConfig
@@ -19,6 +20,28 @@ from src.core.youtube.models import (
 
 if TYPE_CHECKING:
     from yt_dlp import YoutubeDL as YoutubeDLType
+
+
+class YoutubeAuthenticationRequiredError(Exception):
+    pass
+
+
+class YoutubeBrowserCookiesUnsupportedError(Exception):
+    pass
+
+
+class _YtDlpLogger:
+    def debug(self, _message: str) -> None:
+        return None
+
+    def info(self, _message: str) -> None:
+        return None
+
+    def warning(self, _message: str) -> None:
+        return None
+
+    def error(self, _message: str) -> None:
+        return None
 
 
 class YtDlpYoutubeClient:
@@ -106,10 +129,22 @@ class YtDlpYoutubeClient:
             await asyncio.to_thread(shutil.rmtree, request_dir, ignore_errors=True)
 
     def _extract_metadata(self, url: str) -> dict[str, object]:
+        try:
+            return self._extract_metadata_once(url=url, use_cookies=True)
+        except DownloadError as error:
+            if self._should_retry_metadata_without_cookies(error):
+                return self._extract_metadata_once(url=url, use_cookies=False)
+            raise
+
+    def _extract_metadata_once(self, *, url: str, use_cookies: bool) -> dict[str, object]:
         youtube_dl_factory = cast(Any, YoutubeDL)
-        youtube_dl = cast("YoutubeDLType", youtube_dl_factory(self._base_options(skip_download=True)))
-        with youtube_dl:
-            extracted = youtube_dl.extract_info(url, download=False)
+        youtube_dl = cast("YoutubeDLType", youtube_dl_factory(self._metadata_options(use_cookies=use_cookies)))
+        try:
+            with youtube_dl:
+                extracted = youtube_dl.extract_info(url, download=False)
+        except DownloadError as error:
+            self._raise_if_authentication_required(error)
+            raise
         return cast(dict[str, object], extracted)
 
     def _download_video(
@@ -130,10 +165,14 @@ class YtDlpYoutubeClient:
         )
         youtube_dl_factory = cast(Any, YoutubeDL)
         youtube_dl = cast("YoutubeDLType", youtube_dl_factory(options))
-        with youtube_dl:
-            youtube_dl.download([url])
+        try:
+            with youtube_dl:
+                youtube_dl.download([url])
+        except DownloadError as error:
+            self._raise_if_authentication_required(error)
+            raise
 
-    def _base_options(self, *, skip_download: bool) -> dict[str, object]:
+    def _base_options(self, *, skip_download: bool, use_cookies: bool = True) -> dict[str, object]:
         download_dir = self._config.download_dir.resolve()
         options: dict[str, object] = {
             "quiet": True,
@@ -141,13 +180,48 @@ class YtDlpYoutubeClient:
             "noplaylist": True,
             "skip_download": skip_download,
             "paths": {"home": str(download_dir)},
+            "logger": _YtDlpLogger(),
         }
-        if self._config.cookies_path is not None:
+        if use_cookies and self._config.cookies_path is not None:
             options["cookiefile"] = str(self._config.cookies_path.resolve())
+        if use_cookies and self._config.cookies_from_browser is not None:
+            options["cookiesfrombrowser"] = (self._config.cookies_from_browser,)
+        return options
+
+    def _metadata_options(self, *, use_cookies: bool) -> dict[str, object]:
+        options = self._base_options(skip_download=True, use_cookies=use_cookies)
+        options.update(
+            {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": False,
+                "simulate": True,
+                "format": None,
+            }
+        )
         return options
 
     def _resolve_request_dir(self, request_id: str) -> Path:
         return (self._config.download_dir / request_id).resolve()
+
+    def _raise_if_authentication_required(self, error: DownloadError) -> None:
+        error_message = str(error)
+        if "unsupported platform: linux" in error_message and self._config.cookies_from_browser is not None:
+            raise YoutubeBrowserCookiesUnsupportedError(error_message) from error
+
+        if (
+            "confirm you're not a bot" in error_message
+            or "cookies-from-browser" in error_message
+            or "--cookies" in error_message
+        ):
+            raise YoutubeAuthenticationRequiredError(error_message) from error
+
+    def _should_retry_metadata_without_cookies(self, error: DownloadError) -> bool:
+        if self._config.cookies_path is None and self._config.cookies_from_browser is None:
+            return False
+
+        error_message = str(error)
+        return "Requested format is not available" in error_message
 
 
 def _build_download_options(*, metadata: Mapping[str, object], max_quality: int) -> list[YoutubeDownloadOption]:
@@ -155,72 +229,135 @@ def _build_download_options(*, metadata: Mapping[str, object], max_quality: int)
     if not isinstance(raw_formats, list):
         return []
 
-    audio_sizes: list[int] = []
-    video_candidates: dict[int, int] = {}
-    progressive_candidates: dict[int, int] = {}
+    audio_only_formats: list[tuple[str, int | None]] = []
+    progressive_candidates: dict[int, YoutubeDownloadOption] = {}
+    adaptive_candidates: dict[int, YoutubeDownloadOption] = {}
 
     for raw_format in raw_formats:
-        if not isinstance(raw_format, Mapping):
+        parsed_format = _parse_download_format(raw_format=raw_format, max_quality=max_quality)
+        if parsed_format is None:
             continue
 
-        height = _coerce_int(raw_format.get("height"))
-        if height is None or height > max_quality:
+        if parsed_format.kind == "audio":
+            audio_only_formats.append((parsed_format.option.selector, parsed_format.option.estimated_size_bytes))
             continue
 
-        size_bytes = _coerce_int(raw_format.get("filesize") or raw_format.get("filesize_approx"))
-        vcodec = str(raw_format.get("vcodec") or "none")
-        acodec = str(raw_format.get("acodec") or "none")
-        ext = str(raw_format.get("ext") or "mp4")
-
-        if acodec != "none" and vcodec == "none" and size_bytes is not None:
-            audio_sizes.append(size_bytes)
+        option = parsed_format.option
+        height = option.height
+        if height is None:
             continue
 
-        if vcodec == "none":
+        if parsed_format.kind == "progressive":
+            existing_progressive = progressive_candidates.get(height)
+            if existing_progressive is None or _is_better_option(option=option, other=existing_progressive):
+                progressive_candidates[height] = option
             continue
 
-        if acodec != "none" and ext == "mp4" and size_bytes is not None:
-            progressive_candidates[height] = max(progressive_candidates.get(height, 0), size_bytes)
+        existing_adaptive = adaptive_candidates.get(height)
+        if existing_adaptive is None or _is_better_option(option=option, other=existing_adaptive):
+            adaptive_candidates[height] = option
 
-        if size_bytes is not None:
-            video_candidates[height] = max(video_candidates.get(height, 0), size_bytes)
-
-    estimated_audio_size = max(audio_sizes) if audio_sizes else None
+    preferred_audio = _pick_preferred_audio_format(audio_only_formats)
     options: list[YoutubeDownloadOption] = []
-    for height in sorted({*video_candidates.keys(), *progressive_candidates.keys()}, reverse=True):
-        progressive_size = progressive_candidates.get(height)
-        if progressive_size is not None:
-            options.append(
-                YoutubeDownloadOption(
-                    key=f"{height}p",
-                    label=f"{height}p mp4",
-                    selector=f"best[height<={height}][ext=mp4]/best[height<={height}]",
-                    container="mp4",
-                    height=height,
-                    estimated_size_bytes=progressive_size,
-                )
-            )
+    for height in sorted({*adaptive_candidates.keys(), *progressive_candidates.keys()}, reverse=True):
+        progressive_option = progressive_candidates.get(height)
+        if progressive_option is not None:
+            options.append(progressive_option)
             continue
 
-        estimated_size = video_candidates.get(height)
-        if estimated_size is not None and estimated_audio_size is not None:
-            estimated_size += estimated_audio_size
+        adaptive_option = adaptive_candidates.get(height)
+        if adaptive_option is None:
+            continue
 
-        options.append(
-            YoutubeDownloadOption(
-                key=f"{height}p",
-                label=f"{height}p mp4",
-                selector=(
-                    f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]"
-                    f"/best[height<={height}][ext=mp4]/best[height<={height}]"
-                ),
-                container="mp4",
-                height=height,
-                estimated_size_bytes=estimated_size,
-            )
-        )
+        options.append(_build_adaptive_download_option(option=adaptive_option, preferred_audio=preferred_audio))
 
     return options[:4]
+
+
+def _pick_preferred_audio_format(audio_formats: list[tuple[str, int | None]]) -> tuple[str, int | None] | None:
+    if not audio_formats:
+        return None
+
+    return max(audio_formats, key=lambda item: item[1] if item[1] is not None else -1)
+
+
+def _is_better_option(*, option: YoutubeDownloadOption, other: YoutubeDownloadOption) -> bool:
+    option_size = option.estimated_size_bytes if option.estimated_size_bytes is not None else -1
+    other_size = other.estimated_size_bytes if other.estimated_size_bytes is not None else -1
+    return option_size > other_size
+
+
+def _build_adaptive_download_option(
+    *,
+    option: YoutubeDownloadOption,
+    preferred_audio: tuple[str, int | None] | None,
+) -> YoutubeDownloadOption:
+    selector = option.selector
+    estimated_size = option.estimated_size_bytes
+    container = option.container
+
+    if preferred_audio is not None:
+        audio_format_id, audio_size_bytes = preferred_audio
+        selector = f"{option.selector}+{audio_format_id}"
+        container = "mp4"
+        if estimated_size is not None and audio_size_bytes is not None:
+            estimated_size += audio_size_bytes
+
+    return option.model_copy(
+        update={
+            "selector": selector,
+            "container": container,
+            "estimated_size_bytes": estimated_size,
+        }
+    )
+
+
+class _ParsedDownloadFormat:
+    def __init__(self, *, kind: str, option: YoutubeDownloadOption) -> None:
+        self.kind = kind
+        self.option = option
+
+
+def _parse_download_format(*, raw_format: object, max_quality: int) -> _ParsedDownloadFormat | None:
+    if not isinstance(raw_format, Mapping):
+        return None
+
+    format_id = raw_format.get("format_id")
+    if not isinstance(format_id, str) or not format_id:
+        return None
+
+    size_bytes = _coerce_int(raw_format.get("filesize") or raw_format.get("filesize_approx"))
+    vcodec = str(raw_format.get("vcodec") or "none")
+    acodec = str(raw_format.get("acodec") or "none")
+    ext = str(raw_format.get("ext") or "mp4")
+
+    if acodec != "none" and vcodec == "none":
+        return _ParsedDownloadFormat(
+            kind="audio",
+            option=YoutubeDownloadOption(
+                key=format_id,
+                label=ext,
+                selector=format_id,
+                container=ext,
+                estimated_size_bytes=size_bytes,
+            ),
+        )
+
+    height = _coerce_int(raw_format.get("height"))
+    if height is None or height > max_quality or vcodec == "none":
+        return None
+
+    return _ParsedDownloadFormat(
+        kind="progressive" if acodec != "none" else "adaptive",
+        option=YoutubeDownloadOption(
+            key=f"{height}p",
+            label=f"{height}p {ext}",
+            selector=format_id,
+            container=ext,
+            height=height,
+            estimated_size_bytes=size_bytes,
+        ),
+    )
 
 
 def _coerce_int(value: object) -> int | None:

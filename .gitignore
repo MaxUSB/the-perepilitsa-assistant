@@ -2,6 +2,7 @@
 .vscode/
 
 # ENV
+.secrets/
 .venv/
 .env
 

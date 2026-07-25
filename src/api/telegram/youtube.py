@@ -11,7 +11,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.api.telegram.callbacks import YoutubeDownloadCallback
 from src.api.telegram.filters import YoutubeUrlFilter
 from src.core.youtube.models import YoutubeDownloadOption, YoutubeVideoPreview
-from src.core.youtube.utils import build_preview_caption, format_bytes
+from src.core.youtube.utils import (
+    build_no_uploadable_formats_caption,
+    build_preview_caption,
+    build_youtube_auth_required_caption,
+    build_youtube_browser_cookies_unsupported_caption,
+    format_bytes,
+)
+from src.logic.youtube.client import YoutubeAuthenticationRequiredError, YoutubeBrowserCookiesUnsupportedError
 from src.logic.youtube.service import YoutubeService
 
 
@@ -21,18 +28,36 @@ def create_youtube_router() -> Router:
 
     @router.message(F.text, YoutubeUrlFilter())
     async def handle_youtube_message(message: Message, youtube_url: str, youtube_service: YoutubeService) -> None:
-        preview_request = await youtube_service.create_request_from_message(
-            message=message,
-            youtube_url=youtube_url,
-        )
+        try:
+            preview_request = await youtube_service.create_request_from_message(
+                message=message,
+                youtube_url=youtube_url,
+            )
+        except YoutubeAuthenticationRequiredError:
+            await message.answer(build_youtube_auth_required_caption())
+            return
+        except YoutubeBrowserCookiesUnsupportedError:
+            await message.answer(build_youtube_browser_cookies_unsupported_caption())
+            return
+
+        uploadable_options = youtube_service.filter_uploadable_options(preview_request.preview.options)
+        if not uploadable_options:
+            await send_no_uploadable_formats_message(
+                message=message,
+                preview=preview_request.preview,
+                upload_limit_bytes=youtube_service.telegram_upload_limit_bytes,
+            )
+            return
+
         reply_markup = build_quality_keyboard(
             request_id=preview_request.request_id,
-            options=preview_request.preview.options,
+            options=uploadable_options,
         )
+        preview = preview_request.preview.model_copy(update={"options": uploadable_options})
 
         preview_message = await send_preview_message(
             message=message,
-            preview=preview_request.preview,
+            preview=preview,
             reply_markup=reply_markup,
         )
         await youtube_service.attach_preview_message(
@@ -119,3 +144,22 @@ async def send_preview_message(
         )
     except TelegramBadRequest:
         return await message.answer(caption, reply_markup=reply_markup)
+
+
+async def send_no_uploadable_formats_message(
+    *,
+    message: Message,
+    preview: YoutubeVideoPreview,
+    upload_limit_bytes: int,
+) -> Message:
+    caption = build_no_uploadable_formats_caption(preview=preview, upload_limit_bytes=upload_limit_bytes)
+    if preview.thumbnail_url is None:
+        return await message.answer(caption)
+
+    try:
+        return await message.answer_photo(
+            photo=str(preview.thumbnail_url),
+            caption=caption,
+        )
+    except TelegramBadRequest:
+        return await message.answer(caption)

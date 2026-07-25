@@ -27,6 +27,10 @@ class BotConfig(BaseSettings):
         default=None,
         validation_alias=AliasChoices("BOT_TELEGRAM_PROXY_URL"),
     )
+    telegram_api_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BOT_TELEGRAM_API_BASE_URL"),
+    )
 
     @field_validator("allowed_user_ids", mode="before")
     @classmethod
@@ -77,6 +81,22 @@ class BotConfig(BaseSettings):
 
         if "://" not in normalized_value:
             msg = "BOT_TELEGRAM_PROXY_URL must include a scheme, for example socks5://192.168.1.1:1081"
+            raise ValueError(msg)
+
+        return normalized_value
+
+    @field_validator("telegram_api_base_url")
+    @classmethod
+    def validate_telegram_api_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        normalized_value = value.strip().rstrip("/")
+        if not normalized_value:
+            return None
+
+        if not normalized_value.startswith(("http://", "https://")):
+            msg = "BOT_TELEGRAM_API_BASE_URL must start with http:// or https://"
             raise ValueError(msg)
 
         return normalized_value

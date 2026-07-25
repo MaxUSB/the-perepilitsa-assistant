@@ -2,6 +2,10 @@ services:
   bot:
     environment:
       APP_ENV: dev
+    depends_on:
+      telegram-bot-api:
+        condition: service_started
+        required: false
     command: ["uv", "run", "--group", "dev", "watchfiles", "--filter", "python", "python -m src.main", "src"]
     volumes:
       - ./:/opt/app

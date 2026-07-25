@@ -2,4 +2,8 @@ services:
   bot:
     environment:
       APP_ENV: prod
+    depends_on:
+      telegram-bot-api:
+        condition: service_started
+        required: false
     command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "src.main"]

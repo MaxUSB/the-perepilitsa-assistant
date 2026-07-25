@@ -5,7 +5,7 @@ import re
 from html import escape
 from urllib.parse import parse_qs, urlparse
 
-from src.core.youtube.models import YoutubeDownloadProgressSnapshot, YoutubeVideoPreview
+from src.core.youtube.models import YoutubeDownloadOption, YoutubeDownloadProgressSnapshot, YoutubeVideoPreview
 
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 _YOUTUBE_HOSTS = {
@@ -96,6 +96,23 @@ def build_preview_caption(preview: YoutubeVideoPreview) -> str:
     )
 
 
+def build_no_uploadable_formats_caption(*, preview: YoutubeVideoPreview, upload_limit_bytes: int) -> str:
+    duration = format_duration(preview.duration_seconds)
+    uploader = escape(preview.uploader) if preview.uploader is not None else "unknown"
+    title = escape(preview.title)
+
+    return (
+        "<b>⚠️ Video Is Too Large For Telegram</b>\n"
+        "━━━━━━━━━━━━━━\n"
+        f"<b>📌 Title</b>\n{title}\n\n"
+        f"<b>👤 Author:</b> {uploader}\n"
+        f"<b>⏱ Duration:</b> {duration}\n"
+        f"<b>📦 Telegram limit:</b> {format_bytes(upload_limit_bytes)}\n"
+        "━━━━━━━━━━━━━━\n"
+        "<i>No detected quality currently fits Telegram upload limits.</i>"
+    )
+
+
 def build_progress_caption(snapshot: YoutubeDownloadProgressSnapshot) -> str:
     total_bytes = snapshot.total_bytes or snapshot.downloaded_bytes or 0
     downloaded_bytes = snapshot.downloaded_bytes or 0
@@ -129,4 +146,48 @@ def build_result_caption(
         f"<b>⏱ Duration:</b> {format_duration(duration_seconds)}\n"
         f"<b>💾 Size:</b> {format_bytes(file_size_bytes)}\n"
         f'<b>🔗 Source:</b> <a href="{escape(source_url)}">Open on YouTube</a>'
+    )
+
+
+def build_file_too_large_caption(
+    *,
+    title: str,
+    quality: YoutubeDownloadOption,
+    file_size_bytes: int,
+    upload_limit_bytes: int,
+) -> str:
+    return (
+        "<b>⚠️ Upload To Telegram Failed</b>\n"
+        "━━━━━━━━━━━━━━\n"
+        f"<b>📌 Title</b>\n{escape(title)}\n\n"
+        f"<b>🎞 Selected quality:</b> {escape(quality.label)}\n"
+        f"<b>💾 Final size:</b> {format_bytes(file_size_bytes)}\n"
+        f"<b>📦 Telegram limit:</b> {format_bytes(upload_limit_bytes)}\n"
+        "━━━━━━━━━━━━━━\n"
+        "<i>Try a smaller quality option.</i>"
+    )
+
+
+def build_youtube_auth_required_caption() -> str:
+    return (
+        "<b>🔐 YouTube Requires Authentication</b>\n"
+        "━━━━━━━━━━━━━━\n"
+        "YouTube asked to confirm that the downloader is not a bot.\n\n"
+        "<b>Configure one of these options:</b>\n"
+        "• <code>YOUTUBE_COOKIES_PATH</code> to a Netscape cookies file\n"
+        "• <code>YOUTUBE_COOKIES_FROM_BROWSER</code> with your browser name\n\n"
+        "<i>Example:</i> <code>YOUTUBE_COOKIES_FROM_BROWSER=chrome</code>"
+    )
+
+
+def build_youtube_browser_cookies_unsupported_caption() -> str:
+    return (
+        "<b>⚠️ Browser Cookies Are Not Available In The Container</b>\n"
+        "━━━━━━━━━━━━━━\n"
+        "The bot is running on Linux inside Docker, but your browser cookies live on the host OS.\n\n"
+        "<b>Use this instead:</b>\n"
+        "• export YouTube cookies to a Netscape cookies file\n"
+        "• mount that file into the container\n"
+        "• set <code>YOUTUBE_COOKIES_PATH</code> to that file path\n\n"
+        "<b>Do not use</b> <code>YOUTUBE_COOKIES_FROM_BROWSER</code> inside this containerized setup."
     )

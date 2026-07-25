@@ -1,4 +1,4 @@
-.PHONY: quality lint format types test dev-up dev-down prod-up prod-down
+.PHONY: quality lint format types test dev-up dev-down prod-up prod-down dev-up-local prod-up-local
 
 COMPOSE := docker compose
 DEV_COMPOSE := -f docker-compose.yml -f docker-compose.dev.yml
@@ -21,11 +21,17 @@ test:
 dev-up:
 	$(COMPOSE) $(DEV_COMPOSE) up -d
 
+dev-up-local:
+	$(COMPOSE) $(DEV_COMPOSE) --profile local-bot-api up -d
+
 dev-down:
 	$(COMPOSE) $(DEV_COMPOSE) down
 
 prod-up:
 	$(COMPOSE) $(PROD_COMPOSE) up --build -d
+
+prod-up-local:
+	$(COMPOSE) $(PROD_COMPOSE) --profile local-bot-api up --build -d
 
 prod-down:
 	$(COMPOSE) $(PROD_COMPOSE) down

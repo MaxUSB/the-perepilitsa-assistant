@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 
 from src.core.app.config import AppConfig
@@ -36,7 +37,16 @@ async def run() -> None:
     )
     module_registry = create_module_registry(context)
     dispatcher = create_dispatcher(context=context, module_registry=module_registry)
-    bot_session = AiohttpSession(proxy=bot_config.telegram_proxy_url)
+    api_server = (
+        TelegramAPIServer.from_base(bot_config.telegram_api_base_url, is_local=True)
+        if bot_config.telegram_api_base_url is not None
+        else None
+    )
+    bot_session = (
+        AiohttpSession(proxy=bot_config.telegram_proxy_url, api=api_server)
+        if api_server is not None
+        else AiohttpSession(proxy=bot_config.telegram_proxy_url)
+    )
 
     bot = Bot(
         token=bot_config.token.get_secret_value(),
