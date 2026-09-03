@@ -14,8 +14,22 @@ from src.logic.gpn.module import GpnModule, dismiss_gpn_notification
 _RECIPIENT_COUNT = 2
 
 
-def station(*, station_id: int = 1, oils: dict[str, bool], address: str = "Республики, 1") -> Station:
-    return Station(id=station_id, city="Тюмень", address=address, oils=oils)
+def station(
+    *,
+    station_id: int = 1,
+    oils: dict[str, bool],
+    address: str = "Республики, 1",
+    latitude: float = 57.1,
+    longitude: float = 65.5,
+) -> Station:
+    return Station(
+        id=station_id,
+        city="Тюмень",
+        address=address,
+        latitude=latitude,
+        longitude=longitude,
+        oils=oils,
+    )
 
 
 def create_module(*, recipient_ids: frozenset[int] = frozenset({1})) -> tuple[GpnModule, AsyncMock, AsyncMock]:
@@ -50,8 +64,22 @@ async def test_client_keeps_rotated_csrf_cookies_and_parses_station_oils() -> No
             json={
                 "oilProducts": [{"id": 12, "shortTitle": "95"}],
                 "stations": [
-                    {"GPNAZSID": 1, "city": "Тюмень", "address": "Республики, 1", "oils": {"12": True}},
-                    {"GPNAZSID": 2, "city": "Москва", "address": "Тверская, 1", "oils": {"12": True}},
+                    {
+                        "GPNAZSID": 1,
+                        "city": "Тюмень",
+                        "address": "Республики, 1",
+                        "latitude": "57.1",
+                        "longitude": "65.5",
+                        "oils": {"12": True},
+                    },
+                    {
+                        "GPNAZSID": 2,
+                        "city": "Москва",
+                        "address": "Тверская, 1",
+                        "latitude": "55.7",
+                        "longitude": "37.6",
+                        "oils": {"12": True},
+                    },
                 ],
             },
         )
@@ -133,9 +161,11 @@ async def test_combines_all_changed_stations_into_one_message_per_recipient() ->
     call = bot.send_message.await_args_list[0]
     text = call.kwargs["text"]
     assert "⛽️" in text
-    assert "Тюмень, Республики, 1" in text
+    assert "Республики, 1" in text
+    assert "Тюмень" not in text
+    assert 'href="https://2gis.ru/tyumen?m=65.5%2C57.1%2F17"' in text
     assert "В наличии: 95" in text
-    assert "Тюмень, Широтная, 6" in text
+    assert "Широтная, 6" in text
     assert "В наличии: 92, G-100" in text
     assert call.kwargs["reply_markup"].inline_keyboard[0][0].text == "👌 Ок"
 
@@ -151,6 +181,118 @@ async def test_does_not_notify_when_oils_do_not_appear() -> None:
     await module._check_api()
 
     bot.send_message.assert_not_awaited()
+
+
+async def test_fuel_command_deletes_command_and_shows_grouped_fuel_buttons() -> None:
+    module, _, _ = create_module()
+    module._state = [
+        station(station_id=1, oils={"95": False, "G-95": True, "ДТ": True}),
+        station(station_id=2, oils={"92": True}, address="Широтная, 6"),
+    ]
+    message = AsyncMock(spec=Message)
+    message.answer = AsyncMock()
+    message.delete = AsyncMock()
+
+    await module._handle_fuel_command(cast(Message, message))
+
+    message.delete.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    call = message.answer.await_args
+    assert call is not None
+    assert "Какое топливо вас интересует?" in call.args[0]
+    buttons = [button for row in call.kwargs["reply_markup"].inline_keyboard for button in row]
+    assert [button.text for button in buttons] == ["⛽ 92", "⛽ 95", "⛽ ДТ"]
+    assert [button.callback_data for button in buttons] == ["gpn:fuel:92", "gpn:fuel:95", "gpn:fuel:ДТ"]
+
+
+async def test_fuel_command_reports_that_initial_state_is_loading() -> None:
+    module, _, _ = create_module()
+    message = AsyncMock(spec=Message)
+    message.answer = AsyncMock()
+    message.delete = AsyncMock()
+
+    await module._handle_fuel_command(cast(Message, message))
+
+    message.answer.assert_awaited_once()
+    message.delete.assert_awaited_once()
+    call = message.answer.await_args
+    assert call is not None
+    assert "Данные о топливе ещё загружаются" in call.args[0]
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].text == "👌 Ок"
+
+
+async def test_fuel_command_handles_empty_fuel_list() -> None:
+    module, _, _ = create_module()
+    module._state = []
+    message = AsyncMock(spec=Message)
+    message.answer = AsyncMock()
+    message.delete = AsyncMock()
+
+    await module._handle_fuel_command(cast(Message, message))
+
+    message.answer.assert_awaited_once()
+    call = message.answer.await_args
+    assert call is not None
+    assert "Данные о топливе не найдены" in call.args[0]
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].text == "👌 Ок"
+
+
+async def test_fuel_selection_edits_menu_with_matching_stations_and_2gis_links() -> None:
+    module, _, _ = create_module()
+    module._state = [
+        station(station_id=1, oils={"95": True, "G-95": False}),
+        station(
+            station_id=2,
+            oils={"95": False, "G-95": True},
+            address="Широтная, 6",
+            latitude=57.2,
+            longitude=65.6,
+        ),
+        station(station_id=3, oils={"95": False, "G-95": False}, address="Ямская, 1"),
+    ]
+    callback_query = AsyncMock(spec=CallbackQuery)
+    callback_query.answer = AsyncMock()
+    callback_query.data = "gpn:fuel:95"
+    message = AsyncMock(spec=Message)
+    message.edit_text = AsyncMock()
+    callback_query.message = message
+
+    await module._handle_fuel_selection(cast(CallbackQuery, callback_query))
+
+    callback_query.answer.assert_awaited_once()
+    message.edit_text.assert_awaited_once()
+    call = message.edit_text.await_args
+    assert call is not None
+    text = call.args[0]
+    assert "Где есть топливо 95" in text
+    assert "Республики, 1" in text
+    assert "🔥 95" in text
+    assert "Широтная, 6" in text
+    assert "🔥 G-95" in text
+    assert "Ямская, 1" not in text
+    assert "Тюмень" not in text
+    assert 'href="https://2gis.ru/tyumen?m=65.5%2C57.1%2F17"' in text
+    assert 'href="https://2gis.ru/tyumen?m=65.6%2C57.2%2F17"' in text
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].text == "👌 Ок"
+
+
+async def test_fuel_selection_handles_stale_group() -> None:
+    module, _, _ = create_module()
+    module._state = [station(oils={"92": True})]
+    callback_query = AsyncMock(spec=CallbackQuery)
+    callback_query.answer = AsyncMock()
+    callback_query.data = "gpn:fuel:95"
+    message = AsyncMock(spec=Message)
+    message.edit_text = AsyncMock()
+    callback_query.message = message
+
+    await module._handle_fuel_selection(cast(CallbackQuery, callback_query))
+
+    callback_query.answer.assert_awaited_once()
+    message.edit_text.assert_awaited_once()
+    call = message.edit_text.await_args
+    assert call is not None
+    assert "Данные обновились" in call.args[0]
 
 
 async def test_dismiss_callback_answers_and_deletes_message() -> None:

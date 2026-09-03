@@ -30,6 +30,8 @@ class GpnClient:
                 id=station["GPNAZSID"],
                 city=station["city"],
                 address=station["address"],
+                latitude=station["latitude"],
+                longitude=station["longitude"],
                 oils=dict(
                     sorted(
                         ((oil_names_map[k], v) for k, v in station["oils"].items()),
