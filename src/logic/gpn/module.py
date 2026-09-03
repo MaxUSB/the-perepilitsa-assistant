@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from src.core.gpn import FuelAvailability, GpnConfig, Station
 from src.logic.gpn.client import GpnClient
+from src.logic.gpn.store import GpnStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class GpnModule:
         self._router = Router(name="gpn")
         self._bot = bot
         self._config = config
+        self._store = GpnStateStore(config.state_path)
         self._client = (
             GpnClient(url=config.url, request_timeout_seconds=config.request_timeout_seconds)
             if config.url is not None
@@ -107,6 +109,10 @@ class GpnModule:
         return self._router
 
     async def startup(self) -> None:
+        self._state = await asyncio.to_thread(self._store.load)
+        if self._state is not None:
+            logger.info("Restored GPN state with %s stations", len(self._state))
+
         if self._client is None:
             logger.info("GPN module is disabled because GPN_URL is not configured")
             return
@@ -141,6 +147,7 @@ class GpnModule:
 
         new_state = await self._client.get_city_stations("Тюмень")
         previous_state = self._state
+        await asyncio.to_thread(self._store.save, new_state)
         self._state = new_state
 
         if previous_state is None:

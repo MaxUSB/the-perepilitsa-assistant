@@ -1,6 +1,7 @@
 import asyncio
+from pathlib import Path
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 from aiogram import Bot
@@ -10,6 +11,7 @@ from aiogram.types import CallbackQuery, Message
 from src.core.gpn import GpnConfig, Station
 from src.logic.gpn.client import GpnClient
 from src.logic.gpn.module import GpnModule, dismiss_gpn_notification
+from src.logic.gpn.store import GpnStateStore
 
 _RECIPIENT_COUNT = 2
 
@@ -45,6 +47,9 @@ def create_module(*, recipient_ids: frozenset[int] = frozenset({1})) -> tuple[Gp
     )
     module = GpnModule(bot=cast(Bot, bot), config=config)
     module._client = cast(GpnClient, client)
+    store = MagicMock(spec=GpnStateStore)
+    store.load.return_value = None
+    module._store = cast(GpnStateStore, store)
     return module, bot, client
 
 
@@ -101,6 +106,22 @@ async def test_client_keeps_rotated_csrf_cookies_and_parses_station_oils() -> No
     assert "csrf-token-value=value-1" in requests[1].headers["cookie"]
 
 
+def test_state_store_persists_and_restores_stations(tmp_path: Path) -> None:
+    state_store = GpnStateStore(tmp_path / "gpn" / "state.json")
+    stations = [station(oils={"95": True, "G-95": False})]
+
+    state_store.save(stations)
+
+    assert state_store.load() == stations
+
+
+def test_state_store_returns_none_for_corrupted_state(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_text("not-json")
+
+    assert GpnStateStore(state_path).load() is None
+
+
 def test_finds_only_false_to_true_oil_transitions() -> None:
     previous = [station(oils={"92": False, "95": True, "G-100": False})]
     current = [station(oils={"92": True, "95": False, "G-100": False, "ДТ": True})]
@@ -139,6 +160,27 @@ async def test_first_response_only_initializes_state() -> None:
 
     assert module._state == [station(oils={"95": True})]
     bot.send_message.assert_not_awaited()
+
+
+async def test_first_response_is_compared_with_restored_state() -> None:
+    module, bot, client = create_module()
+    store = cast(MagicMock, module._store)
+    store.load.return_value = [station(oils={"95": False})]
+    client.get_city_stations.return_value = [station(oils={"95": True})]
+    notification_sent = asyncio.Event()
+
+    async def send_message(**kwargs: object) -> None:
+        _ = kwargs
+        notification_sent.set()
+
+    bot.send_message.side_effect = send_message
+
+    await module.startup()
+    await asyncio.wait_for(notification_sent.wait(), timeout=1)
+    await module.shutdown()
+
+    bot.send_message.assert_awaited_once()
+    store.save.assert_called_once_with([station(oils={"95": True})])
 
 
 async def test_combines_all_changed_stations_into_one_message_per_recipient() -> None:

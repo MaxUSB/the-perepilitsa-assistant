@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from pathlib import Path
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,15 @@ class GpnConfig(BaseSettings):
     recipient_ids: frozenset[int] = Field(
         validation_alias=AliasChoices("GPN_RECIPIENT_IDS"),
     )
+    state_path: Path = Field(
+        default=Path(".runtime/gpn/state.json"),
+        validation_alias=AliasChoices("GPN_STATE_PATH"),
+    )
+
+    @field_validator("state_path", mode="before")
+    @classmethod
+    def expand_state_path(cls, value: object) -> Path:
+        return Path(str(value)).expanduser()
 
     @field_validator("url")
     @classmethod

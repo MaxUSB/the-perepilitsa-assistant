@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - bot-runtime:/opt/app/.runtime
 
   telegram-bot-api:
     image: aiogram/telegram-bot-api:latest
@@ -16,4 +18,5 @@ services:
       - telegram-bot-api-data:/var/lib/telegram-bot-api
 
 volumes:
+  bot-runtime:
   telegram-bot-api-data:
