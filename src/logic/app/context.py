@@ -6,6 +6,7 @@ from src.core.app.config import AppConfig
 from src.core.bot.config import BotConfig
 from src.core.gpn import GpnConfig
 from src.core.youtube import YoutubeConfig
+from src.logic.gpn import GpnService, GpnStateStore, HttpGpnClient
 from src.logic.youtube import YoutubeRequestStore, YoutubeService, YtDlpYoutubeClient
 
 
@@ -20,6 +21,7 @@ class ApplicationContext:
     youtube_service: YoutubeService
 
     gpn_config: GpnConfig
+    gpn_service: GpnService
 
     @classmethod
     def from_configs(
@@ -38,6 +40,16 @@ class ApplicationContext:
             youtube_store=youtube_store,
             youtube_config=youtube_config,
         )
+        gpn_client = (
+            HttpGpnClient(url=gpn_config.url, request_timeout_seconds=gpn_config.request_timeout_seconds)
+            if gpn_config.url is not None
+            else None
+        )
+        gpn_service = GpnService(
+            city=gpn_config.city,
+            client=gpn_client,
+            store=GpnStateStore(gpn_config.state_path),
+        )
         return cls(
             app_config=app_config,
             bot_config=bot_config,
@@ -45,4 +57,5 @@ class ApplicationContext:
             youtube_store=youtube_store,
             youtube_service=youtube_service,
             gpn_config=gpn_config,
+            gpn_service=gpn_service,
         )

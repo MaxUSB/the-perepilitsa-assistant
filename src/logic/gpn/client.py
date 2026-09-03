@@ -3,7 +3,7 @@ import httpx
 from src.core.gpn import REQUEST_BODY, REQUEST_HEADERS, Station
 
 
-class GpnClient:
+class HttpGpnClient:
     def __init__(
         self,
         *,

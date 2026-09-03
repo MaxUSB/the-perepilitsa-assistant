@@ -12,7 +12,10 @@ Current goals of the project:
 - support local development and production deployment through Docker Compose;
 - enforce project quality through linting, formatting, type checking, and tests.
 
-At the moment, the first implemented feature module is `YouTube Downloader`.
+Implemented feature modules:
+
+- `YouTube Downloader` for interactive video downloads;
+- `GPN` for background fuel availability monitoring and `/fuel` station lookup.
 
 ## Tech Stack
 
@@ -21,6 +24,7 @@ At the moment, the first implemented feature module is `YouTube Downloader`.
 - `aiogram` v3 for Telegram bot runtime
 - `pydantic` v2 and `pydantic-settings` for models and environment-based config
 - `yt-dlp` for YouTube metadata extraction and downloads
+- `httpx` for asynchronous GPN API requests
 - `ruff` for linting and formatting
 - `ty` for type checking
 - `pytest` and `pytest-asyncio` for tests
@@ -37,10 +41,12 @@ At the moment, the first implemented feature module is `YouTube Downloader`.
 │   ├── core/
 │   │   ├── app/
 │   │   ├── bot/
+│   │   ├── gpn/
 │   │   └── youtube/
 │   └── logic/
 │       ├── app/
 │       ├── bot/
+│       ├── gpn/
 │       ├── modules/
 │       └── youtube/
 ├── tests/
@@ -78,7 +84,9 @@ Examples in the current codebase:
 - `src/core/app/config.py` contains `AppConfig`;
 - `src/core/bot/config.py` contains `BotConfig`;
 - `src/core/youtube/models.py` contains YouTube data models;
-- `src/core/youtube/client.py` contains the `YoutubeClient` protocol.
+- `src/core/youtube/client.py` contains the `YoutubeClient` protocol;
+- `src/core/gpn/client.py` contains the `GpnClient` protocol;
+- `src/core/gpn/models.py` contains station and fuel availability models.
 
 ### `src/logic`
 
@@ -97,7 +105,9 @@ Examples in the current codebase:
 - `src/logic/app/context.py` builds `ApplicationContext`;
 - `src/logic/app/factory.py` builds the `Dispatcher` and module registry;
 - `src/logic/youtube/client.py` implements the concrete `yt-dlp` adapter;
-- `src/logic/youtube/service.py` implements the YouTube download flow.
+- `src/logic/youtube/service.py` implements the YouTube download flow;
+- `src/logic/gpn/service.py` owns fuel state and comparison logic;
+- `src/logic/gpn/store.py` persists the latest station snapshot.
 
 ### `src/api`
 
@@ -116,7 +126,8 @@ Examples:
 
 - `src/api/telegram/common.py` handles `/start`;
 - `src/api/telegram/fallback.py` handles unsupported input;
-- `src/api/telegram/youtube.py` handles YouTube link messages and callback button clicks.
+- `src/api/telegram/youtube.py` handles YouTube link messages and callback button clicks;
+- `src/api/telegram/gpn.py` handles `/fuel`, fuel selection, and dismiss callbacks.
 
 ## Runtime Boot Process
 
@@ -124,7 +135,7 @@ Application startup is defined in `src/main.py`.
 
 Boot sequence:
 
-1. `AppConfig`, `BotConfig`, and `YoutubeConfig` are loaded from environment variables.
+1. `AppConfig`, `BotConfig`, `YoutubeConfig`, and `GpnConfig` are loaded from environment variables.
 2. Logging is configured through `configure_logging()`.
 3. `ApplicationContext.from_configs(...)` creates concrete runtime objects.
 4. `create_module_registry(context)` builds the active bot modules.
@@ -150,6 +161,8 @@ It currently contains:
 - `youtube_config`
 - `youtube_store`
 - `youtube_service`
+- `gpn_config`
+- `gpn_service`
 
 This approach keeps object construction in one place and avoids hidden dependencies.
 
@@ -159,6 +172,7 @@ This approach keeps object construction in one place and avoids hidden dependenc
 
 ```python
 dispatcher["youtube_service"] = context.youtube_service
+dispatcher["gpn_service"] = context.gpn_service
 ```
 
 That allows `aiogram` to inject the service into handlers by parameter name.
@@ -200,7 +214,7 @@ Responsibilities:
 
 ```python
 def create_module_registry(context: ApplicationContext) -> ModuleRegistry:
-    return ModuleRegistry(modules=(YoutubeModule(),), context=context)
+    return ModuleRegistry(modules=(YoutubeModule(), GpnModule(...)), context=context)
 ```
 
 This means adding a new module currently requires only one registry change after the module files are implemented.
@@ -332,6 +346,61 @@ Important implication:
 - pending requests are lost on process restart;
 - current design is acceptable for a personal bot, but not durable enough for multi-instance deployment.
 
+## GPN Module
+
+The GPN feature follows the same three-layer split as the YouTube module.
+
+### Core Layer
+
+Files:
+
+- `src/core/gpn/config.py`
+- `src/core/gpn/models.py`
+- `src/core/gpn/client.py`
+- `src/core/gpn/consts.py`
+
+Responsibilities:
+
+- define environment-based configuration;
+- define station and fuel availability models;
+- define the `GpnClient` protocol;
+- keep request constants independent from runtime wiring.
+
+### Logic Layer
+
+Files:
+
+- `src/logic/gpn/module.py`
+- `src/logic/gpn/service.py`
+- `src/logic/gpn/client.py`
+- `src/logic/gpn/store.py`
+
+Responsibilities:
+
+- run the non-blocking polling lifecycle;
+- call the GPN API through a persistent `httpx.AsyncClient` session;
+- retain rotated session and CSRF cookies between requests;
+- compare station `oils` values and detect only `false -> true` transitions;
+- atomically persist and restore the latest station snapshot.
+
+`GpnModule` is intentionally small: it starts and stops polling and sends notifications. State management and business rules belong to `GpnService`.
+
+### API Layer
+
+`src/api/telegram/gpn.py` contains the transport-specific behavior:
+
+- handle `/fuel` and remove the source command;
+- display fuel selection buttons grouped by octane number;
+- replace the selection message with matching stations;
+- build 2GIS links from station coordinates;
+- handle the dismiss button.
+
+### Polling And Persistence
+
+On startup, `GpnService` restores `.runtime/gpn/state.json`. The first API response is compared with the restored snapshot, so availability changes that occurred while the container was stopped can still produce notifications.
+
+After every successful API response, the new snapshot is written atomically. Docker Compose mounts the named `bot-runtime` volume at `/opt/app/.runtime`, so the state survives container restarts and recreation. Explicitly deleting volumes, for example with `docker compose down -v`, also deletes the persisted state.
+
 ## Configuration Model
 
 Environment variables are loaded through `pydantic-settings`.
@@ -372,24 +441,18 @@ Variables:
 - `YOUTUBE_PROGRESS_UPDATE_INTERVAL_SECONDS`
 - `YOUTUBE_REQUEST_TTL_SECONDS`
 
-### Example Environment
+### `GpnConfig`
 
-See `.env.example`:
+Defined in `src/core/gpn/config.py`.
 
-```env
-APP_ENV=dev
-APP_LOG_LEVEL=INFO
+Variables:
 
-BOT_TOKEN=your_bot_token_here
-BOT_ALLOWED_USER_IDS=123456789,987654321
-BOT_DELETE_SOURCE_MESSAGE=true
-BOT_TELEGRAM_PROXY_URL=socks5://192.168.1.1:1081
-
-YOUTUBE_DOWNLOAD_DIR=.runtime/youtube
-YOUTUBE_MAX_QUALITY=1080
-YOUTUBE_PROGRESS_UPDATE_INTERVAL_SECONDS=1.5
-YOUTUBE_REQUEST_TTL_SECONDS=3600
-```
+- `GPN_URL`
+- `GPN_CITY`
+- `GPN_INTERVAL_SECONDS`
+- `GPN_REQUEST_TIMEOUT_SECONDS`
+- `GPN_RECIPIENT_IDS`
+- `GPN_STATE_PATH`
 
 ## Quality Gates
 

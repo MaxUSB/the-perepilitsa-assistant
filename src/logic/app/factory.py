@@ -13,7 +13,7 @@ def create_module_registry(*, context: ApplicationContext, bot: Bot) -> ModuleRe
     return ModuleRegistry(
         modules=(
             YoutubeModule(),
-            GpnModule(bot=bot, config=context.gpn_config),
+            GpnModule(bot=bot, config=context.gpn_config, service=context.gpn_service),
         ),
         context=context,
     )
@@ -23,6 +23,7 @@ def create_dispatcher(*, context: ApplicationContext, module_registry: ModuleReg
     dispatcher = Dispatcher()
     dispatcher.update.outer_middleware(AllowedUserMiddleware(context.bot_config.allowed_user_ids))
     dispatcher["youtube_service"] = context.youtube_service
+    dispatcher["gpn_service"] = context.gpn_service
 
     dispatcher.include_router(create_common_router())
     for router in module_registry.routers():

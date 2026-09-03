@@ -15,6 +15,7 @@ class GpnConfig(BaseSettings):
     url: str | None = Field(
         validation_alias=AliasChoices("GPN_URL"),
     )
+    city: str = Field(validation_alias=AliasChoices("GPN_CITY"))
     interval_seconds: float = Field(
         gt=0,
         validation_alias=AliasChoices("GPN_INTERVAL_SECONDS"),
@@ -50,6 +51,15 @@ class GpnConfig(BaseSettings):
             msg = "GPN_URL must start with http:// or https://"
             raise ValueError(msg)
 
+        return normalized_value
+
+    @field_validator("city")
+    @classmethod
+    def normalize_city(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            msg = "GPN_CITY must not be empty"
+            raise ValueError(msg)
         return normalized_value
 
     @field_validator("recipient_ids", mode="before")
