@@ -1,36 +1,26 @@
-from collections.abc import Iterable
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from src.core.config import parse_int_set
 
 
 class GpnConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
+        env_prefix="GPN_",
         extra="ignore",
         frozen=True,
     )
 
-    url: str | None = Field(
-        validation_alias=AliasChoices("GPN_URL"),
-    )
-    city: str = Field(validation_alias=AliasChoices("GPN_CITY"))
-    interval_seconds: float = Field(
-        gt=0,
-        validation_alias=AliasChoices("GPN_INTERVAL_SECONDS"),
-    )
-    request_timeout_seconds: float = Field(
-        gt=0,
-        validation_alias=AliasChoices("GPN_REQUEST_TIMEOUT_SECONDS"),
-    )
-    recipient_ids: frozenset[int] = Field(
-        validation_alias=AliasChoices("GPN_RECIPIENT_IDS"),
-    )
-    state_path: Path = Field(
-        default=Path(".runtime/gpn/state.json"),
-        validation_alias=AliasChoices("GPN_STATE_PATH"),
-    )
+    url: str | None
+    city: str
+    interval_seconds: float = Field(gt=0)
+    request_timeout_seconds: float = Field(gt=0)
+    recipient_ids: Annotated[frozenset[int], NoDecode]
+    state_path: Path
 
     @field_validator("state_path", mode="before")
     @classmethod
@@ -65,18 +55,4 @@ class GpnConfig(BaseSettings):
     @field_validator("recipient_ids", mode="before")
     @classmethod
     def parse_recipient_ids(cls, value: object) -> frozenset[int]:
-        if value is None:
-            return frozenset()
-
-        if isinstance(value, int):
-            return frozenset({value})
-
-        if isinstance(value, str):
-            items = [item.strip() for item in value.split(",") if item.strip()]
-            return frozenset(int(item) for item in items)
-
-        if isinstance(value, Iterable):
-            return frozenset(int(str(item).strip()) for item in value)
-
-        msg = "GPN_RECIPIENT_IDS must be a CSV string or an iterable of integers"
-        raise TypeError(msg)
+        return parse_int_set(value, variable_name="GPN_RECIPIENT_IDS")

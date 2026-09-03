@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -18,9 +16,7 @@ class AllowedUserMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> object | None:
         event_from_user = data.get("event_from_user")
-        if isinstance(event_from_user, User):
-            user_id = event_from_user.id
-            if user_id not in self._allowed_user_ids:
-                return None
+        if not isinstance(event_from_user, User) or event_from_user.id not in self._allowed_user_ids:
+            return None
 
         return await handler(event, data)

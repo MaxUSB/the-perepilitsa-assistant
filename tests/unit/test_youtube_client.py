@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from src.logic.youtube.client import _build_download_options, _pick_downloaded_file

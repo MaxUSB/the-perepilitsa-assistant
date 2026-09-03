@@ -1,5 +1,4 @@
 # DEVELOPMENT
-.vscode/
 .git/
 
 # ENV
@@ -14,4 +13,3 @@ __pycache__/
 
 # APP
 .runtime/
-

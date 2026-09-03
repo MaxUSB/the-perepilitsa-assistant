@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -14,17 +12,20 @@ class YoutubeRequestStore:
     def create_request_id(self) -> str:
         return uuid4().hex[:12]
 
-    async def save(self, request: YoutubeDownloadRequest) -> None:
+    def save(self, request: YoutubeDownloadRequest) -> None:
         self._cleanup_expired()
         self._requests[request.request_id] = request
 
-    async def get(self, request_id: str) -> YoutubeDownloadRequest | None:
+    def get(self, request_id: str) -> YoutubeDownloadRequest | None:
         self._cleanup_expired()
         return self._requests.get(request_id)
 
-    async def pop(self, request_id: str) -> YoutubeDownloadRequest | None:
+    def claim(self, request_id: str, option_key: str) -> YoutubeDownloadRequest | None:
         self._cleanup_expired()
-        return self._requests.pop(request_id, None)
+        request = self._requests.get(request_id)
+        if request is None or not any(option.key == option_key for option in request.preview.options):
+            return None
+        return self._requests.pop(request_id)
 
     def _cleanup_expired(self) -> None:
         now = datetime.now(tz=UTC)

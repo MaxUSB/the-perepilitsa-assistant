@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
+from typing import Self
 
 from src.core.app.config import AppConfig
 from src.core.bot.config import BotConfig
@@ -31,7 +30,7 @@ class ApplicationContext:
         bot_config: BotConfig,
         youtube_config: YoutubeConfig,
         gpn_config: GpnConfig,
-    ) -> ApplicationContext:
+    ) -> Self:
         youtube_store = YoutubeRequestStore(request_ttl_seconds=youtube_config.request_ttl_seconds)
         youtube_client = YtDlpYoutubeClient(config=youtube_config)
         youtube_service = YoutubeService(

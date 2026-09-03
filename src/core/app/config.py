@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +11,6 @@ class AppConfig(BaseSettings):
         frozen=True,
     )
 
-    env: str = Field(default="dev")
-    log_level: str = Field(default="INFO")
-    runtime_dir: Path = Field(default=Path(".runtime"))
+    env: str
+    log_level: str
+    runtime_dir: Path

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import logging
 
@@ -9,7 +7,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 
-from src.core.app.config import AppConfig
+from src.core.app import AppConfig, load_settings
 from src.core.bot.config import BotConfig
 from src.core.gpn import GpnConfig
 from src.core.youtube import YoutubeConfig
@@ -25,10 +23,10 @@ def configure_logging(app_config: AppConfig) -> None:
 
 
 async def run() -> None:
-    app_config = AppConfig()
-    bot_config = BotConfig()
-    youtube_config = YoutubeConfig()
-    gpn_config = GpnConfig()  # ty:ignore[missing-argument]
+    app_config = load_settings(AppConfig)
+    bot_config = load_settings(BotConfig)
+    youtube_config = load_settings(YoutubeConfig)
+    gpn_config = load_settings(GpnConfig)
 
     configure_logging(app_config)
 
@@ -65,8 +63,10 @@ async def run() -> None:
         await module_registry.startup()
         await dispatcher.start_polling(bot)
     finally:
-        await module_registry.shutdown()
-        await bot.session.close()
+        try:
+            await module_registry.shutdown()
+        finally:
+            await bot.session.close()
 
 
 def main() -> None:

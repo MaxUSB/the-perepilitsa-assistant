@@ -1,55 +1,29 @@
-from __future__ import annotations
-
-from collections.abc import Iterable
 from typing import Annotated
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from src.core.config import parse_int_set
 
 
 class BotConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
+        env_prefix="BOT_",
         extra="ignore",
         frozen=True,
     )
 
-    token: SecretStr = Field(default=SecretStr(""), validation_alias=AliasChoices("BOT_TOKEN"))
-    allowed_user_ids: Annotated[frozenset[int], NoDecode] = Field(
-        default=frozenset(),
-        validation_alias=AliasChoices("BOT_ALLOWED_USER_IDS"),
-    )
-    delete_source_message: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("BOT_DELETE_SOURCE_MESSAGE"),
-    )
-    telegram_proxy_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("BOT_TELEGRAM_PROXY_URL"),
-    )
-    telegram_api_base_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("BOT_TELEGRAM_API_BASE_URL"),
-    )
+    token: SecretStr
+    allowed_user_ids: Annotated[frozenset[int], NoDecode]
+    delete_source_message: bool
+    telegram_proxy_url: str | None
+    telegram_api_base_url: str | None
 
     @field_validator("allowed_user_ids", mode="before")
     @classmethod
     def parse_allowed_user_ids(cls, value: object) -> frozenset[int]:
-        if value is None:
-            return frozenset()
-
-        if isinstance(value, int):
-            return frozenset({value})
-
-        if isinstance(value, str):
-            items = [item.strip() for item in value.split(",") if item.strip()]
-            return frozenset(int(item) for item in items)
-
-        if isinstance(value, Iterable):
-            return frozenset(int(str(item).strip()) for item in value)
-
-        msg = "BOT_ALLOWED_USER_IDS must be a CSV string or an iterable of integers"
-        raise TypeError(msg)
+        return parse_int_set(value, variable_name="BOT_ALLOWED_USER_IDS")
 
     @field_validator("token")
     @classmethod

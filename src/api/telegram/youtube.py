@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from contextlib import suppress
 
@@ -22,9 +20,8 @@ from src.logic.youtube.client import YoutubeAuthenticationRequiredError, Youtube
 from src.logic.youtube.service import YoutubeService
 
 
-def create_youtube_router() -> Router:
+def create_youtube_router(background_tasks: set[asyncio.Task[None]]) -> Router:
     router = Router(name="youtube")
-    background_tasks: set[asyncio.Task[None]] = set()
 
     @router.message(F.text, YoutubeUrlFilter())
     async def handle_youtube_message(message: Message, youtube_url: str, youtube_service: YoutubeService) -> None:
@@ -84,18 +81,18 @@ def create_youtube_router() -> Router:
 
         download_request = await youtube_service.get_request(callback_data.request_id)
         if download_request is None:
-            await callback_query.answer("⌛ This request has expired", show_alert=True)
+            await callback_query.answer("⌛ Срок действия запроса истёк", show_alert=True)
             with suppress(TelegramBadRequest):
                 await message.delete()
             return
 
         progress_message = await message.answer(
-            "<b>⏳ Preparing Download</b>\n"
+            "<b>⏳ Подготовка к скачиванию</b>\n"
             "━━━━━━━━━━━━━━\n"
             "<code>[--------------------] 000.0%</code>\n\n"
-            "<i>Getting everything ready...</i>"
+            "<i>Подготавливаю всё необходимое...</i>"
         )
-        await callback_query.answer("🚀 Download started")
+        await callback_query.answer("🚀 Скачивание началось")
         with suppress(TelegramBadRequest):
             await message.delete()
 
@@ -103,6 +100,7 @@ def create_youtube_router() -> Router:
             youtube_service.process_download(
                 request_id=callback_data.request_id,
                 option_key=callback_data.option_key,
+                chat_id=message.chat.id,
                 progress_message_id=progress_message.message_id,
                 bot=bot,
             )

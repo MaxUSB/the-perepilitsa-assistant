@@ -14,8 +14,7 @@ def create_module_registry(*, context: ApplicationContext, bot: Bot) -> ModuleRe
         modules=(
             YoutubeModule(),
             GpnModule(bot=bot, config=context.gpn_config, service=context.gpn_service),
-        ),
-        context=context,
+        )
     )
 
 

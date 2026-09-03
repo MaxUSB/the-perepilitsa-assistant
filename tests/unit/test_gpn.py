@@ -59,11 +59,12 @@ def create_module(*, recipient_ids: frozenset[int] = frozenset({1})) -> tuple[Gp
     service, _, _ = create_service()
     config = GpnConfig.model_validate(
         {
-            "GPN_URL": "https://example.com",
-            "GPN_CITY": "Тюмень",
-            "GPN_INTERVAL_SECONDS": 60,
-            "GPN_REQUEST_TIMEOUT_SECONDS": 30,
-            "GPN_RECIPIENT_IDS": recipient_ids,
+            "url": "https://example.com",
+            "city": "Тюмень",
+            "interval_seconds": 60,
+            "request_timeout_seconds": 30,
+            "recipient_ids": recipient_ids,
+            "state_path": ".runtime/gpn/state.json",
         }
     )
     return GpnModule(bot=cast(Bot, bot), config=config, service=service), service, bot

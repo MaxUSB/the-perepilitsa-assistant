@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import logging
@@ -28,7 +26,7 @@ from src.logic.youtube.client import YoutubeAuthenticationRequiredError, Youtube
 from src.logic.youtube.store import YoutubeRequestStore
 from src.logic.youtube.upload import ProgressFSInputFile
 
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class TelegramUploadLimitExceededError(Exception):
@@ -60,18 +58,18 @@ class YoutubeService:
             source_message_id=message.message_id,
             preview=preview,
         )
-        await self._youtube_store.save(request)
+        self._youtube_store.save(request)
         return request
 
     async def attach_preview_message(self, *, request_id: str, preview_message_id: int) -> None:
-        request = await self._youtube_store.get(request_id)
+        request = self._youtube_store.get(request_id)
         if request is None:
             return
 
-        await self._youtube_store.save(request.model_copy(update={"preview_message_id": preview_message_id}))
+        self._youtube_store.save(request.model_copy(update={"preview_message_id": preview_message_id}))
 
     async def get_request(self, request_id: str) -> YoutubeDownloadRequest | None:
-        return await self._youtube_store.get(request_id)
+        return self._youtube_store.get(request_id)
 
     @property
     def telegram_upload_limit_bytes(self) -> int:
@@ -92,11 +90,13 @@ class YoutubeService:
         *,
         request_id: str,
         option_key: str,
+        chat_id: int,
         progress_message_id: int,
         bot: Bot,
     ) -> None:
-        request = await self._youtube_store.pop(request_id)
+        request = self._youtube_store.claim(request_id, option_key)
         if request is None:
+            await self._safe_delete_message(bot=bot, chat_id=chat_id, message_id=progress_message_id)
             return
 
         option = _find_option(request=request, option_key=option_key)
@@ -105,7 +105,7 @@ class YoutubeService:
                 bot=bot,
                 chat_id=request.chat_id,
                 message_id=progress_message_id,
-                text="<b>⚠️ Download Unavailable</b>\nSelected quality does not fit Telegram upload limits.",
+                text="<b>⚠️ Скачивание недоступно</b>\nВыбранное качество не помещается в лимит Telegram.",
             )
             return
 
@@ -181,16 +181,15 @@ class YoutubeService:
                 text=build_youtube_browser_cookies_unsupported_caption(),
             )
         except Exception:
-            LOGGER.exception("YouTube download failed for request %s", request_id)
+            logger.exception("YouTube download failed for request %s", request_id)
             await self._safe_edit_message(
                 bot=bot,
                 chat_id=request.chat_id,
                 message_id=progress_message_id,
-                text="<b>⚠️ Download Failed</b>\nThe video could not be downloaded right now.",
+                text="<b>⚠️ Не удалось скачать видео</b>\nПопробуйте повторить попытку позже.",
             )
         finally:
-            if hasattr(self._youtube_client, "cleanup_request_files"):
-                await self._youtube_client.cleanup_request_files(request_id)
+            await self._youtube_client.cleanup_request_files(request_id)
 
     async def _send_result_message(
         self,
@@ -220,7 +219,7 @@ class YoutubeService:
                 supports_streaming=True,
             )
         except TelegramEntityTooLarge as error:
-            LOGGER.info("Telegram rejected oversized file upload: %s", error)
+            logger.info("Telegram rejected oversized file upload: %s", error)
             raise TelegramUploadLimitExceededError(file_size_bytes=file_size_bytes, option=option) from error
 
     def _is_option_uploadable(self, option: YoutubeDownloadOption) -> bool:

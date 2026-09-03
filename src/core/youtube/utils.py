@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import math
 import re
 from html import escape
@@ -43,7 +41,7 @@ def extract_youtube_url(text: str) -> str | None:
 
 def format_bytes(size_bytes: int | None) -> str:
     if size_bytes is None or size_bytes < 0:
-        return "unknown"
+        return "неизвестно"
 
     units = ("B", "KiB", "MiB", "GiB", "TiB")
     value = float(size_bytes)
@@ -61,7 +59,7 @@ def format_bytes(size_bytes: int | None) -> str:
 
 def format_duration(duration_seconds: int | None) -> str:
     if duration_seconds is None or duration_seconds < 0:
-        return "unknown"
+        return "неизвестно"
 
     hours, remainder = divmod(duration_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -81,60 +79,60 @@ def render_progress_bar(progress: float, *, width: int = 20) -> str:
 
 def build_preview_caption(preview: YoutubeVideoPreview) -> str:
     duration = format_duration(preview.duration_seconds)
-    uploader = escape(preview.uploader) if preview.uploader is not None else "unknown"
+    uploader = escape(preview.uploader) if preview.uploader is not None else "неизвестен"
     title = escape(preview.title)
 
     return (
-        "<b>🎬 YouTube Downloader</b>\n"
+        "<b>🎬 Скачивание с YouTube</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"<b>📌 Title</b>\n{title}\n\n"
-        f"<b>👤 Author:</b> {uploader}\n"
-        f"<b>⏱ Duration:</b> {duration}\n"
-        f"<b>🎞 Formats:</b> {len(preview.options)} available\n"
+        f"<b>📌 Название</b>\n{title}\n\n"
+        f"<b>👤 Автор:</b> {uploader}\n"
+        f"<b>⏱ Длительность:</b> {duration}\n"
+        f"<b>🎞 Доступно вариантов:</b> {len(preview.options)}\n"
         "━━━━━━━━━━━━━━\n"
-        "<i>👇 Choose the quality for download</i>"
+        "<i>👇 Выберите качество для скачивания</i>"
     )
 
 
 def build_no_uploadable_formats_caption(*, preview: YoutubeVideoPreview, upload_limit_bytes: int) -> str:
     duration = format_duration(preview.duration_seconds)
-    uploader = escape(preview.uploader) if preview.uploader is not None else "unknown"
+    uploader = escape(preview.uploader) if preview.uploader is not None else "неизвестен"
     title = escape(preview.title)
 
     return (
-        "<b>⚠️ Video Is Too Large For Telegram</b>\n"
+        "<b>⚠️ Видео слишком большое для Telegram</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"<b>📌 Title</b>\n{title}\n\n"
-        f"<b>👤 Author:</b> {uploader}\n"
-        f"<b>⏱ Duration:</b> {duration}\n"
-        f"<b>📦 Telegram limit:</b> {format_bytes(upload_limit_bytes)}\n"
+        f"<b>📌 Название</b>\n{title}\n\n"
+        f"<b>👤 Автор:</b> {uploader}\n"
+        f"<b>⏱ Длительность:</b> {duration}\n"
+        f"<b>📦 Лимит Telegram:</b> {format_bytes(upload_limit_bytes)}\n"
         "━━━━━━━━━━━━━━\n"
-        "<i>No detected quality currently fits Telegram upload limits.</i>"
+        "<i>Ни один доступный вариант качества не помещается в лимит Telegram.</i>"
     )
 
 
 def build_progress_caption(snapshot: YoutubeDownloadProgressSnapshot) -> str:
     total_bytes = snapshot.total_bytes or snapshot.downloaded_bytes or 0
     downloaded_bytes = snapshot.downloaded_bytes or 0
-    progress = 0.0 if total_bytes == 0 else downloaded_bytes / total_bytes
+    progress = min(1.0, max(0.0, 0.0 if total_bytes == 0 else downloaded_bytes / total_bytes))
     eta_text = format_duration(snapshot.eta_seconds)
-    speed_text = format_bytes(int(snapshot.speed_bytes_per_second)) if snapshot.speed_bytes_per_second else "unknown"
+    speed_text = format_bytes(int(snapshot.speed_bytes_per_second)) if snapshot.speed_bytes_per_second else "неизвестно"
     if snapshot.phase == "upload":
         return (
-            "<b>📤 Uploading To Telegram</b>\n"
+            "<b>📤 Загрузка в Telegram</b>\n"
             "━━━━━━━━━━━━━━\n"
             f"<code>{render_progress_bar(progress)} {progress * 100:05.1f}%</code>\n\n"
-            f"<b>📦 Uploaded:</b> {format_bytes(downloaded_bytes)} / {format_bytes(snapshot.total_bytes)}\n"
-            "<i>Telegram is receiving the file...</i>"
+            f"<b>📦 Загружено:</b> {format_bytes(downloaded_bytes)} / {format_bytes(snapshot.total_bytes)}\n"
+            "<i>Telegram принимает файл...</i>"
         )
 
     return (
-        "<b>⬇️ Download In Progress</b>\n"
+        "<b>⬇️ Скачивание видео</b>\n"
         "━━━━━━━━━━━━━━\n"
         f"<code>{render_progress_bar(progress)} {progress * 100:05.1f}%</code>\n\n"
-        f"<b>📦 Downloaded:</b> {format_bytes(downloaded_bytes)} / {format_bytes(snapshot.total_bytes)}\n"
-        f"<b>⚡ Speed:</b> {speed_text}/s\n"
-        f"<b>🕒 ETA:</b> {eta_text}"
+        f"<b>📦 Скачано:</b> {format_bytes(downloaded_bytes)} / {format_bytes(snapshot.total_bytes)}\n"
+        f"<b>⚡ Скорость:</b> {speed_text}/с\n"
+        f"<b>🕒 Осталось:</b> {eta_text}"
     )
 
 
@@ -147,13 +145,13 @@ def build_result_caption(
     source_url: str,
 ) -> str:
     return (
-        "<b>✅ Video Ready</b>\n"
+        "<b>✅ Видео готово</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"<b>📌 Title</b>\n{escape(title)}\n\n"
-        f"<b>🎞 Quality:</b> {escape(quality_label)}\n"
-        f"<b>⏱ Duration:</b> {format_duration(duration_seconds)}\n"
-        f"<b>💾 Size:</b> {format_bytes(file_size_bytes)}\n"
-        f'<b>🔗 Source:</b> <a href="{escape(source_url)}">Open on YouTube</a>'
+        f"<b>📌 Название</b>\n{escape(title)}\n\n"
+        f"<b>🎞 Качество:</b> {escape(quality_label)}\n"
+        f"<b>⏱ Длительность:</b> {format_duration(duration_seconds)}\n"
+        f"<b>💾 Размер:</b> {format_bytes(file_size_bytes)}\n"
+        f'<b>🔗 Источник:</b> <a href="{escape(source_url)}">Открыть на YouTube</a>'
     )
 
 
@@ -165,37 +163,37 @@ def build_file_too_large_caption(
     upload_limit_bytes: int,
 ) -> str:
     return (
-        "<b>⚠️ Upload To Telegram Failed</b>\n"
+        "<b>⚠️ Не удалось загрузить видео в Telegram</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"<b>📌 Title</b>\n{escape(title)}\n\n"
-        f"<b>🎞 Selected quality:</b> {escape(quality.label)}\n"
-        f"<b>💾 Final size:</b> {format_bytes(file_size_bytes)}\n"
-        f"<b>📦 Telegram limit:</b> {format_bytes(upload_limit_bytes)}\n"
+        f"<b>📌 Название</b>\n{escape(title)}\n\n"
+        f"<b>🎞 Выбранное качество:</b> {escape(quality.label)}\n"
+        f"<b>💾 Итоговый размер:</b> {format_bytes(file_size_bytes)}\n"
+        f"<b>📦 Лимит Telegram:</b> {format_bytes(upload_limit_bytes)}\n"
         "━━━━━━━━━━━━━━\n"
-        "<i>Try a smaller quality option.</i>"
+        "<i>Попробуйте выбрать вариант с меньшим качеством.</i>"
     )
 
 
 def build_youtube_auth_required_caption() -> str:
     return (
-        "<b>🔐 YouTube Requires Authentication</b>\n"
+        "<b>🔐 YouTube требует авторизацию</b>\n"
         "━━━━━━━━━━━━━━\n"
-        "YouTube asked to confirm that the downloader is not a bot.\n\n"
-        "<b>Configure one of these options:</b>\n"
-        "• <code>YOUTUBE_COOKIES_PATH</code> to a Netscape cookies file\n"
-        "• <code>YOUTUBE_COOKIES_FROM_BROWSER</code> with your browser name\n\n"
-        "<i>Example:</i> <code>YOUTUBE_COOKIES_FROM_BROWSER=chrome</code>"
+        "YouTube попросил подтвердить, что скачивание выполняет не бот.\n\n"
+        "<b>Настройте один из вариантов:</b>\n"
+        "• <code>YOUTUBE_COOKIES_PATH</code> — путь к cookies в формате Netscape\n"
+        "• <code>YOUTUBE_COOKIES_FROM_BROWSER</code> — название браузера\n\n"
+        "<i>Пример:</i> <code>YOUTUBE_COOKIES_FROM_BROWSER=chrome</code>"
     )
 
 
 def build_youtube_browser_cookies_unsupported_caption() -> str:
     return (
-        "<b>⚠️ Browser Cookies Are Not Available In The Container</b>\n"
+        "<b>⚠️ Cookies браузера недоступны внутри контейнера</b>\n"
         "━━━━━━━━━━━━━━\n"
-        "The bot is running on Linux inside Docker, but your browser cookies live on the host OS.\n\n"
-        "<b>Use this instead:</b>\n"
-        "• export YouTube cookies to a Netscape cookies file\n"
-        "• mount that file into the container\n"
-        "• set <code>YOUTUBE_COOKIES_PATH</code> to that file path\n\n"
-        "<b>Do not use</b> <code>YOUTUBE_COOKIES_FROM_BROWSER</code> inside this containerized setup."
+        "Бот работает в Linux-контейнере, а cookies браузера находятся на основной системе.\n\n"
+        "<b>Используйте файл cookies:</b>\n"
+        "• экспортируйте cookies YouTube в формате Netscape\n"
+        "• смонтируйте файл в контейнер\n"
+        "• укажите путь в <code>YOUTUBE_COOKIES_PATH</code>\n\n"
+        "Не используйте <code>YOUTUBE_COOKIES_FROM_BROWSER</code> при запуске в контейнере."
     )

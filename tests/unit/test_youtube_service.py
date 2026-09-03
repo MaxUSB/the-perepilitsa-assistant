@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from src.core.bot.config import BotConfig
 from src.core.youtube.client import YoutubeProgressCallback
 from src.core.youtube.config import YoutubeConfig
@@ -30,15 +28,24 @@ def test_filter_uploadable_options_removes_large_variants() -> None:
     service = YoutubeService(
         bot_config=BotConfig.model_validate(
             {
-                "BOT_TOKEN": "token",
-                "BOT_ALLOWED_USER_IDS": "1",
+                "token": "token",
+                "allowed_user_ids": "1",
+                "delete_source_message": True,
+                "telegram_proxy_url": None,
+                "telegram_api_base_url": None,
             }
         ),
         youtube_client=DummyYoutubeClient(),
         youtube_store=YoutubeRequestStore(request_ttl_seconds=60),
         youtube_config=YoutubeConfig.model_validate(
             {
-                "YOUTUBE_TELEGRAM_UPLOAD_LIMIT_BYTES": 100,
+                "download_dir": ".runtime/youtube",
+                "cookies_path": None,
+                "cookies_from_browser": None,
+                "max_quality": 1080,
+                "progress_update_interval_seconds": 1.5,
+                "telegram_upload_limit_bytes": 100,
+                "request_ttl_seconds": 3600,
             }
         ),
     )

@@ -1,684 +1,308 @@
 # The Perepilitsa Assistant
 
-## Purpose
+Персональный асинхронный Telegram-бот на Python и `aiogram`. Бот скачивает видео с YouTube и отслеживает наличие топлива на АЗС сети «Газпромнефть».
 
-`the-perepilitsa-assistant` is a personal Telegram bot built on top of `aiogram` with a modular architecture.
+## Возможности
 
-Current goals of the project:
+### YouTube Downloader
 
-- keep the bot asynchronous end-to-end;
-- isolate domain/configuration code from runtime wiring;
-- make new bot features pluggable with minimal changes to existing modules;
-- support local development and production deployment through Docker Compose;
-- enforce project quality through linting, formatting, type checking, and tests.
+- Распознаёт ссылки `youtube.com` и `youtu.be`.
+- Показывает доступные варианты качества и размер файла.
+- Скачивает выбранное видео в фоне, не блокируя остальные команды.
+- Показывает прогресс скачивания и загрузки в Telegram.
+- Поддерживает cookies для видео, требующих авторизации.
 
-Implemented feature modules:
+### Мониторинг Топлива GPN
 
-- `YouTube Downloader` for interactive video downloads;
-- `GPN` for background fuel availability monitoring and `/fuel` station lookup.
+- Раз в заданный интервал получает список АЗС выбранного города.
+- Отправляет уведомление, если топливо сменило состояние с «нет в наличии» на «в наличии».
+- Объединяет изменения нескольких АЗС в одно сообщение.
+- Сохраняет последнее состояние и восстанавливает его после перезапуска контейнера.
+- По команде `/fuel` показывает виды топлива и АЗС, где они доступны.
+- Добавляет к адресу ссылку на точку АЗС в 2GIS.
 
-## Tech Stack
+## Команды Бота
 
-- Python `3.14.x`
-- `uv` for dependency management and execution
-- `aiogram` v3 for Telegram bot runtime
-- `pydantic` v2 and `pydantic-settings` for models and environment-based config
-- `yt-dlp` for YouTube metadata extraction and downloads
-- `httpx` for asynchronous GPN API requests
-- `ruff` for linting and formatting
-- `ty` for type checking
-- `pytest` and `pytest-asyncio` for tests
-- Docker and Docker Compose for runtime environments
+- `/start` — краткая справка.
+- `/fuel` — выбор топлива и просмотр АЗС, где оно есть.
+- Ссылка на YouTube — запуск сценария скачивания видео.
 
-## Project Structure
+Бот отвечает только пользователям из `BOT_ALLOWED_USER_IDS`.
 
-```text
-.
-├── src/
-│   ├── main.py
-│   ├── api/
-│   │   └── telegram/
-│   ├── core/
-│   │   ├── app/
-│   │   ├── bot/
-│   │   ├── gpn/
-│   │   └── youtube/
-│   └── logic/
-│       ├── app/
-│       ├── bot/
-│       ├── gpn/
-│       ├── modules/
-│       └── youtube/
-├── tests/
-│   └── unit/
-├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.dev.yml
-├── docker-compose.prod.yml
-├── Makefile
-├── pyproject.toml
-└── TECHNICAL.md
+## Требования
+
+Для рекомендуемого запуска нужны:
+
+- Docker;
+- Docker Compose v2;
+- Telegram Bot Token от [@BotFather](https://t.me/BotFather).
+
+Для запуска без Docker дополнительно нужны:
+
+- Python 3.14;
+- [uv](https://docs.astral.sh/uv/);
+- `ffmpeg`;
+- Node.js и npm для используемых `yt-dlp` сценариев.
+
+## Быстрый Старт Через Docker
+
+1. Клонируйте репозиторий:
+
+```bash
+git clone <URL_РЕПОЗИТОРИЯ>
+cd the-perepilitsa-assistant
 ```
 
-## Architectural Layers
+2. Создайте локальную конфигурацию:
 
-### `src/core`
-
-`core` contains reusable, dependency-light application building blocks.
-
-Typical contents:
-
-- configuration classes;
-- pydantic models;
-- protocols and interfaces;
-- utility functions;
-- enums and custom types.
-
-Important rule:
-
-- `core` should not know how the application is bootstrapped;
-- `core` describes structure and contracts, not runtime wiring.
-
-Examples in the current codebase:
-
-- `src/core/app/config.py` contains `AppConfig`;
-- `src/core/bot/config.py` contains `BotConfig`;
-- `src/core/youtube/models.py` contains YouTube data models;
-- `src/core/youtube/client.py` contains the `YoutubeClient` protocol;
-- `src/core/gpn/client.py` contains the `GpnClient` protocol;
-- `src/core/gpn/models.py` contains station and fuel availability models.
-
-### `src/logic`
-
-`logic` contains runtime behavior and concrete implementations.
-
-Typical responsibilities:
-
-- instantiate services and clients;
-- orchestrate application flows;
-- implement module-specific business logic;
-- manage in-memory stores or adapters;
-- define module lifecycle hooks.
-
-Examples in the current codebase:
-
-- `src/logic/app/context.py` builds `ApplicationContext`;
-- `src/logic/app/factory.py` builds the `Dispatcher` and module registry;
-- `src/logic/youtube/client.py` implements the concrete `yt-dlp` adapter;
-- `src/logic/youtube/service.py` implements the YouTube download flow;
-- `src/logic/gpn/service.py` owns fuel state and comparison logic;
-- `src/logic/gpn/store.py` persists the latest station snapshot.
-
-### `src/api`
-
-`api` is the transport-facing layer.
-
-For this bot, that means Telegram handlers, filters, callback payloads, and router wiring.
-
-The API layer should:
-
-- parse incoming Telegram events;
-- call application services from `logic`;
-- avoid heavy business logic;
-- stay thin and transport-oriented.
-
-Examples:
-
-- `src/api/telegram/common.py` handles `/start`;
-- `src/api/telegram/fallback.py` handles unsupported input;
-- `src/api/telegram/youtube.py` handles YouTube link messages and callback button clicks;
-- `src/api/telegram/gpn.py` handles `/fuel`, fuel selection, and dismiss callbacks.
-
-## Runtime Boot Process
-
-Application startup is defined in `src/main.py`.
-
-Boot sequence:
-
-1. `AppConfig`, `BotConfig`, `YoutubeConfig`, and `GpnConfig` are loaded from environment variables.
-2. Logging is configured through `configure_logging()`.
-3. `ApplicationContext.from_configs(...)` creates concrete runtime objects.
-4. `create_module_registry(context)` builds the active bot modules.
-5. `create_dispatcher(...)` creates and configures `aiogram.Dispatcher`.
-6. `Bot` is created with HTML parse mode enabled globally.
-7. Webhook state is cleared via `bot.delete_webhook(drop_pending_updates=True)`.
-8. Module startup hooks are executed.
-9. Polling starts.
-10. On shutdown, module shutdown hooks are executed and the bot session is closed.
-
-## Dependency Wiring
-
-The project currently uses a lightweight explicit dependency wiring pattern instead of a DI container.
-
-### `ApplicationContext`
-
-`src/logic/app/context.py` is the central runtime assembly point.
-
-It currently contains:
-
-- `app_config`
-- `bot_config`
-- `youtube_config`
-- `youtube_store`
-- `youtube_service`
-- `gpn_config`
-- `gpn_service`
-
-This approach keeps object construction in one place and avoids hidden dependencies.
-
-### Dispatcher Injection
-
-`create_dispatcher(...)` stores shared services inside the dispatcher context:
-
-```python
-dispatcher["youtube_service"] = context.youtube_service
-dispatcher["gpn_service"] = context.gpn_service
+```bash
+cp .env.example .env
 ```
 
-That allows `aiogram` to inject the service into handlers by parameter name.
+3. Заполните как минимум:
 
-Example:
-
-```python
-async def handle_youtube_message(message: Message, youtube_service: YoutubeService) -> None:
-    ...
+```env
+BOT_TOKEN="<ТОКЕН_ОТ_BOTFATHER>"
+BOT_ALLOWED_USER_IDS="123456789"
+GPN_RECIPIENT_IDS="123456789"
+GPN_CITY="Тюмень"
 ```
 
-## Module System
+Узнать Telegram user ID можно с помощью специализированного Telegram-бота, например `@userinfobot`.
 
-The bot is designed around a module registry.
+4. Запустите production-конфигурацию:
 
-### Module Contract
-
-`src/logic/modules/base.py` defines `BotModule` as a protocol with three members:
-
-- `router() -> Router`
-- `startup() -> None`
-- `shutdown() -> None`
-
-This is the minimal contract required for a pluggable bot feature.
-
-### Module Registry
-
-`src/logic/modules/registry.py` contains `ModuleRegistry`.
-
-Responsibilities:
-
-- expose all routers from registered modules;
-- call `startup()` for every module during boot;
-- call `shutdown()` for every module during shutdown.
-
-### Module Registration
-
-`src/logic/app/factory.py` is the current place where active modules are registered:
-
-```python
-def create_module_registry(context: ApplicationContext) -> ModuleRegistry:
-    return ModuleRegistry(modules=(YoutubeModule(), GpnModule(...)), context=context)
+```bash
+make prod-up
 ```
 
-This means adding a new module currently requires only one registry change after the module files are implemented.
+5. Посмотрите логи:
 
-## Telegram Update Flow
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f bot
+```
 
-The dispatcher is wired in this order:
+6. Остановите проект:
 
-1. access middleware;
-2. common router;
-3. feature module routers;
-4. fallback router.
+```bash
+make prod-down
+```
 
-That order matters.
+## Режимы Telegram API
 
-### Access Control
+По умолчанию бот использует облачный Telegram Bot API:
 
-`src/logic/bot/access.py` contains `AllowedUserMiddleware`.
+```env
+BOT_TELEGRAM_API_BASE_URL=""
+```
 
-Behavior:
+Для локального Telegram Bot API укажите:
 
-- reads `event_from_user` from the `aiogram` event context;
-- checks whether the Telegram user id is included in `BOT_ALLOWED_USER_IDS`;
-- silently drops updates from non-allowed users.
+```env
+BOT_TELEGRAM_API_BASE_URL="http://telegram-bot-api:8081"
+TELEGRAM_API_ID="<API_ID>"
+TELEGRAM_API_HASH="<API_HASH>"
+TELEGRAM_LOCAL="1"
+```
 
-This matches the requirement that unauthorized users should get no response at all.
+И запускайте профиль `local-bot-api`:
 
-### Common Router
+```bash
+make prod-up-local
+```
 
-`src/api/telegram/common.py` currently provides `/start`.
+Локальный API полезен для отправки больших файлов. `TELEGRAM_API_ID` и `TELEGRAM_API_HASH` выдаются на [my.telegram.org](https://my.telegram.org/).
 
-### Feature Routers
+## Конфигурация
 
-Feature routers contain their own message and callback flows.
+Все настройки обязательны и читаются из `.env`. У config-классов нет скрытых значений по умолчанию. Неиспользуемые nullable-параметры задаются пустой строкой.
 
-### Fallback Router
+### Приложение
 
-`src/api/telegram/fallback.py` is intentionally included last.
+| Переменная | Описание | Пример |
+| --- | --- | --- |
+| `APP_ENV` | Режим окружения | `dev` |
+| `APP_LOG_LEVEL` | Уровень логирования | `INFO` |
+| `APP_RUNTIME_DIR` | Каталог runtime-данных | `.runtime` |
 
-If no module consumed the incoming message, fallback answers with a generic hint.
+### Telegram-Бот
 
-## YouTube Downloader Module
+| Переменная | Описание | Пример |
+| --- | --- | --- |
+| `BOT_TOKEN` | Токен бота | `<CHANGE ME>` |
+| `BOT_ALLOWED_USER_IDS` | Разрешённые user ID через запятую | `123,456` |
+| `BOT_DELETE_SOURCE_MESSAGE` | Удалять исходную YouTube-ссылку после обработки | `true` |
+| `BOT_TELEGRAM_API_BASE_URL` | URL локального Bot API или пустая строка | `""` |
+| `BOT_TELEGRAM_PROXY_URL` | URL SOCKS/HTTP proxy или пустая строка | `""` |
 
-The YouTube feature is split across three layers.
+### YouTube
 
-### Core Layer
+| Переменная | Описание | Пример |
+| --- | --- | --- |
+| `YOUTUBE_DOWNLOAD_DIR` | Каталог временных загрузок | `.runtime/youtube` |
+| `YOUTUBE_COOKIES_PATH` | Путь к Netscape cookies или пустая строка | `.secrets/youtube-cookies.txt` |
+| `YOUTUBE_COOKIES_FROM_BROWSER` | Браузер для чтения cookies или пустая строка | `chrome` |
+| `YOUTUBE_MAX_QUALITY` | Максимальная высота видео | `1080` |
+| `YOUTUBE_PROGRESS_UPDATE_INTERVAL_SECONDS` | Частота обновления progress message | `1.5` |
+| `YOUTUBE_TELEGRAM_UPLOAD_LIMIT_BYTES` | Лимит загружаемого файла | `2000000000` |
+| `YOUTUBE_REQUEST_TTL_SECONDS` | Срок жизни выбора качества | `3600` |
 
-Files:
+Одновременно задавать `YOUTUBE_COOKIES_PATH` и `YOUTUBE_COOKIES_FROM_BROWSER` не рекомендуется. В Docker обычно используется файл cookies.
 
-- `src/core/youtube/config.py`
-- `src/core/youtube/models.py`
-- `src/core/youtube/client.py`
-- `src/core/youtube/utils.py`
+### GPN
 
-Responsibilities:
+| Переменная | Описание | Пример |
+| --- | --- | --- |
+| `GPN_URL` | Базовый URL API | `https://gpnbonus.ru` |
+| `GPN_CITY` | Город для фильтрации АЗС | `Тюмень` |
+| `GPN_INTERVAL_SECONDS` | Интервал опроса API | `60` |
+| `GPN_REQUEST_TIMEOUT_SECONDS` | Таймаут HTTP-запроса | `30` |
+| `GPN_RECIPIENT_IDS` | Получатели автоматических уведомлений | `123,456` |
+| `GPN_STATE_PATH` | Файл постоянного snapshot | `.runtime/gpn/state.json` |
 
-- define config fields;
-- define preview, option, request, progress, and result models;
-- define the `YoutubeClient` protocol;
-- provide formatting and URL extraction helpers.
+### Локальный Telegram Bot API
 
-### Logic Layer
+| Переменная | Описание |
+| --- | --- |
+| `TELEGRAM_HTTP_PORT` | HTTP-порт локального API |
+| `TELEGRAM_API_ID` | Telegram API ID |
+| `TELEGRAM_API_HASH` | Telegram API Hash |
+| `TELEGRAM_LOCAL` | Включение local mode |
 
-Files:
+## YouTube Cookies
 
-- `src/logic/youtube/module.py`
-- `src/logic/youtube/service.py`
-- `src/logic/youtube/client.py`
-- `src/logic/youtube/store.py`
+Для age-restricted, private или требующих авторизации видео можно передать cookies в Netscape-формате:
 
-Responsibilities:
+```env
+YOUTUBE_COOKIES_PATH="/opt/app/.secrets/youtube-cookies.txt"
+YOUTUBE_COOKIES_FROM_BROWSER=""
+```
 
-- create the router-facing module object;
-- manage request lifecycle and download orchestration;
-- adapt `yt-dlp` to the internal `YoutubeClient` protocol;
-- keep temporary request state in memory.
+При Docker-запуске файл должен быть доступен внутри контейнера. Не добавляйте cookies и `.env` в Git.
 
-### API Layer
+## Локальная Разработка
 
-Files:
+1. Установите `uv` и Python 3.14.
+2. Установите зависимости:
 
-- `src/api/telegram/youtube.py`
-- `src/api/telegram/filters.py`
-- `src/api/telegram/callbacks.py`
+```bash
+uv sync --group dev
+```
 
-Responsibilities:
+3. Создайте `.env`:
 
-- detect YouTube links in text messages;
-- send preview messages with inline buttons;
-- handle callback button clicks;
-- launch background downloads without blocking the bot.
+```bash
+cp .env.example .env
+```
 
-## YouTube Download Flow
+4. Запустите бота напрямую:
 
-Current end-to-end flow:
+```bash
+uv run python -m src.main
+```
 
-1. User sends a text message with a YouTube link.
-2. `YoutubeUrlFilter` extracts and validates the URL.
-3. `handle_youtube_message(...)` calls `YoutubeService.create_request_from_message(...)`.
-4. `YoutubeService` calls `YoutubeClient.inspect(...)`.
-5. `YtDlpYoutubeClient.inspect(...)` loads metadata and available formats with `yt-dlp`.
-6. Bot sends a preview message with title, author, duration, and quality buttons.
-7. Request metadata is stored in `YoutubeRequestStore` with a generated request id.
-8. User presses an inline quality button.
-9. `handle_quality_selection(...)` deletes the preview message and sends a progress message.
-10. A background `asyncio` task starts `YoutubeService.process_download(...)`.
-11. `YoutubeService` resolves the selected option and calls `YoutubeClient.download(...)`.
-12. `YtDlpYoutubeClient.download(...)` downloads the media into `.runtime/youtube/<request_id>/...`.
-13. `yt-dlp` progress hooks are translated into `YoutubeDownloadProgressSnapshot` updates.
-14. `YoutubeService` throttles progress message edits with `progress_update_interval_seconds`.
-15. When the file is ready, the bot sends the final video via `bot.send_video(...)`.
-16. Progress message is deleted.
-17. Original source message is deleted if `BOT_DELETE_SOURCE_MESSAGE=true`.
-18. Temporary downloaded files are removed.
+Для разработки в Docker с автоматическим перезапуском:
 
-## Request Store Design
+```bash
+make dev-up
+```
 
-`src/logic/youtube/store.py` contains an in-memory TTL store.
+С локальным Telegram Bot API:
 
-Current characteristics:
+```bash
+make dev-up-local
+```
 
-- stores `YoutubeDownloadRequest` objects in a dictionary;
-- generates request ids using `uuid4().hex[:12]`;
-- removes expired requests lazily on `save()`, `get()`, and `pop()`;
-- state is process-local and ephemeral.
+## Проверка Качества
 
-Important implication:
-
-- pending requests are lost on process restart;
-- current design is acceptable for a personal bot, but not durable enough for multi-instance deployment.
-
-## GPN Module
-
-The GPN feature follows the same three-layer split as the YouTube module.
-
-### Core Layer
-
-Files:
-
-- `src/core/gpn/config.py`
-- `src/core/gpn/models.py`
-- `src/core/gpn/client.py`
-- `src/core/gpn/consts.py`
-
-Responsibilities:
-
-- define environment-based configuration;
-- define station and fuel availability models;
-- define the `GpnClient` protocol;
-- keep request constants independent from runtime wiring.
-
-### Logic Layer
-
-Files:
-
-- `src/logic/gpn/module.py`
-- `src/logic/gpn/service.py`
-- `src/logic/gpn/client.py`
-- `src/logic/gpn/store.py`
-
-Responsibilities:
-
-- run the non-blocking polling lifecycle;
-- call the GPN API through a persistent `httpx.AsyncClient` session;
-- retain rotated session and CSRF cookies between requests;
-- compare station `oils` values and detect only `false -> true` transitions;
-- atomically persist and restore the latest station snapshot.
-
-`GpnModule` is intentionally small: it starts and stops polling and sends notifications. State management and business rules belong to `GpnService`.
-
-### API Layer
-
-`src/api/telegram/gpn.py` contains the transport-specific behavior:
-
-- handle `/fuel` and remove the source command;
-- display fuel selection buttons grouped by octane number;
-- replace the selection message with matching stations;
-- build 2GIS links from station coordinates;
-- handle the dismiss button.
-
-### Polling And Persistence
-
-On startup, `GpnService` restores `.runtime/gpn/state.json`. The first API response is compared with the restored snapshot, so availability changes that occurred while the container was stopped can still produce notifications.
-
-After every successful API response, the new snapshot is written atomically. Docker Compose mounts the named `bot-runtime` volume at `/opt/app/.runtime`, so the state survives container restarts and recreation. Explicitly deleting volumes, for example with `docker compose down -v`, also deletes the persisted state.
-
-## Configuration Model
-
-Environment variables are loaded through `pydantic-settings`.
-
-### `AppConfig`
-
-Defined in `src/core/app/config.py`.
-
-Variables:
-
-- `APP_ENV`
-- `APP_LOG_LEVEL`
-
-### `BotConfig`
-
-Defined in `src/core/bot/config.py`.
-
-Variables:
-
-- `BOT_TOKEN`
-- `BOT_ALLOWED_USER_IDS`
-- `BOT_DELETE_SOURCE_MESSAGE`
-- `BOT_TELEGRAM_PROXY_URL`
-
-Compatibility note:
-
-- `ALLOWED_USER_IDS` is also accepted as a legacy alias.
-
-### `YoutubeConfig`
-
-Defined in `src/core/youtube/config.py`.
-
-Variables:
-
-- `YOUTUBE_DOWNLOAD_DIR`
-- `YOUTUBE_COOKIES_PATH`
-- `YOUTUBE_MAX_QUALITY`
-- `YOUTUBE_PROGRESS_UPDATE_INTERVAL_SECONDS`
-- `YOUTUBE_REQUEST_TTL_SECONDS`
-
-### `GpnConfig`
-
-Defined in `src/core/gpn/config.py`.
-
-Variables:
-
-- `GPN_URL`
-- `GPN_CITY`
-- `GPN_INTERVAL_SECONDS`
-- `GPN_REQUEST_TIMEOUT_SECONDS`
-- `GPN_RECIPIENT_IDS`
-- `GPN_STATE_PATH`
-
-## Quality Gates
-
-The project uses four main quality checks:
-
-- lint: `uv run ruff check src tests pyproject.toml`
-- format check: `uv run ruff format --check src tests pyproject.toml`
-- types: `uv run ty check`
-- tests: `uv run pytest`
-
-There is also a single convenience target:
+Полный набор проверок:
 
 ```bash
 make quality
 ```
 
-## Local Commands
+Отдельные команды:
 
-Main `Makefile` targets:
+```bash
+make lint
+make format
+make types
+make test
+```
 
-- `make quality`
-- `make dev-up`
-- `make dev-down`
-- `make prod-up`
-- `make prod-down`
+Эквивалентные команды `uv`:
 
-## Docker Runtime
+```bash
+uv run ruff check src tests pyproject.toml
+uv run ruff format --check src tests pyproject.toml
+uv run ty check
+uv run pytest
+```
 
-### Base Image
+## Хранение Данных
 
-`Dockerfile` uses:
+- Временные YouTube-файлы находятся в `.runtime/youtube` и удаляются после обработки.
+- GPN snapshot находится в `.runtime/gpn/state.json`.
+- Docker Compose монтирует `.runtime` в named volume `bot-runtime`.
+- State сохраняется при restart и пересоздании контейнера.
+- Команда `docker compose down -v` удаляет named volumes и сохранённый state.
 
-- `astral/uv:python3.14-bookworm`
+## Обновление
 
-It installs `ffmpeg`, then installs Python dependencies with `uv sync --frozen --no-dev`.
+```bash
+git pull
+make prod-up
+```
 
-### Dev Compose
+`make prod-up` пересобирает image и перезапускает сервис.
 
-`docker-compose.dev.yml` is designed for local development.
+## Диагностика
 
-Characteristics:
+Проверить состояние контейнеров:
 
-- mounts the whole project into the container;
-- keeps a dedicated container `.venv` volume;
-- runs `uv run python -m src.main`;
-- sets `APP_ENV=dev`.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+```
 
-### Prod Compose
+Посмотреть логи:
 
-`docker-compose.prod.yml` is designed for production-like runtime.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f bot
+```
 
-Characteristics:
+Проверить итоговую Compose-конфигурацию:
 
-- no source bind mount;
-- restart policy enabled;
-- runs frozen environment command;
-- sets `APP_ENV=prod`.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+```
 
-## How To Add a New Module
+Частые проблемы:
 
-This is the main extension scenario the architecture is built for.
+- Бот не отвечает: проверьте `BOT_TOKEN` и наличие user ID в `BOT_ALLOWED_USER_IDS`.
+- `/fuel` не показывает данные: проверьте `GPN_URL`, `GPN_CITY` и логи GPN poller.
+- YouTube-видео требует входа: настройте `YOUTUBE_COOKIES_PATH`.
+- Бот не подключается к локальному Bot API: запускайте `make dev-up-local` или `make prod-up-local`.
+- State исчез после остановки: не используйте `docker compose down -v`, если volume нужно сохранить.
 
-Below is the recommended pattern.
-
-### 1. Create a `core` package for the feature
-
-Example for a hypothetical notes feature:
+## Структура Проекта
 
 ```text
-src/core/notes/
-├── __init__.py
-├── config.py
-├── models.py
-├── client.py
-└── utils.py
+src/
+├── api/telegram/       # Telegram handlers, callbacks и клавиатуры
+├── core/               # Конфигурация, модели и protocol-контракты
+├── logic/              # Сервисы, adapters, stores и lifecycle модулей
+└── main.py              # Точка запуска
+tests/unit/              # Unit-тесты
 ```
 
-Put here:
+Правила для разработчиков и AI-агентов находятся в [AGENTS.md](AGENTS.md).
 
-- pydantic models;
-- feature config;
-- protocols/interfaces;
-- pure helpers.
+## Безопасность
 
-Do not put `aiogram` routers or concrete runtime wiring here.
+- Не публикуйте `.env`, Telegram token, cookies и API credentials.
+- Ограничивайте доступ через `BOT_ALLOWED_USER_IDS`.
+- Используйте отдельного Telegram-бота для development и production, если проект разворачивается в нескольких окружениях.
 
-### 2. Create a `logic` package for the feature
+## Лицензия
 
-Example:
-
-```text
-src/logic/notes/
-├── __init__.py
-├── module.py
-├── service.py
-├── client.py
-└── store.py
-```
-
-Put here:
-
-- concrete implementations;
-- orchestration services;
-- stores and runtime state;
-- module lifecycle hooks.
-
-Recommended pattern:
-
-- `service.py` contains the main application flow;
-- `client.py` contains the external adapter implementation;
-- `module.py` exposes a `Router` and startup/shutdown hooks.
-
-### 3. Create Telegram API handlers for the feature
-
-Example:
-
-```text
-src/api/telegram/notes.py
-src/api/telegram/filters.py
-src/api/telegram/callbacks.py
-```
-
-Keep handlers thin.
-
-Handlers should:
-
-- parse Telegram input;
-- call the feature service;
-- return Telegram output.
-
-Handlers should not contain complex business logic.
-
-### 4. Extend `ApplicationContext`
-
-If the new module needs config, stores, clients, or services, instantiate them in:
-
-- `src/logic/app/context.py`
-
-Example direction:
-
-```python
-notes_store = NotesStore(...)
-notes_client = NotesApiClient(...)
-notes_service = NotesService(...)
-```
-
-Then add them as fields in `ApplicationContext`.
-
-### 5. Inject required services into the dispatcher
-
-In `src/logic/app/factory.py`, expose the service through dispatcher context:
-
-```python
-dispatcher["notes_service"] = context.notes_service
-```
-
-This lets `aiogram` pass the service into handlers automatically.
-
-### 6. Register the module in the registry
-
-Still in `src/logic/app/factory.py`, add the module to `create_module_registry(...)`:
-
-```python
-return ModuleRegistry(modules=(YoutubeModule(), NotesModule()), context=context)
-```
-
-This is the only place where the new module becomes globally active.
-
-### 7. Add tests
-
-Recommended minimum:
-
-- unit tests for pure utils and models;
-- unit tests for service flow;
-- unit tests for store behavior.
-
-If the feature is complex or stateful, also add integration tests.
-
-### 8. Update `.env.example` if the module introduces config
-
-Any new environment variable must be documented there.
-
-## Recommended Rules For New Modules
-
-- Prefer protocols in `core` and concrete adapters in `logic`.
-- Keep Telegram-specific code in `api`, not in `core`.
-- Keep transport-independent orchestration in services.
-- Keep startup wiring centralized in `ApplicationContext` and `factory.py`.
-- Prefer async APIs and `asyncio.to_thread(...)` for blocking external libraries.
-- Clean up temporary resources in `finally` blocks.
-- Do not bypass `AllowedUserMiddleware` for privileged features.
-- Preserve the router ordering so fallback stays last.
-
-## Current Limitations
-
-These are useful to know before extending the bot further.
-
-- `YoutubeRequestStore` is in-memory only.
-- There is no persistent queue or job runner.
-- A long-running download is attached to the current process lifetime.
-- Failed downloads are reported to the user, but there is no retry policy yet.
-- The module registry is still manual, not auto-discovered.
-- There are no integration or e2e Telegram tests yet.
-
-## Good Next Improvements
-
-Logical next steps for the project:
-
-- add a persistent store for active requests and feature state;
-- add structured application logging around module actions;
-- add centralized error message builders for a consistent UX;
-- add a reusable base pattern for module config and registration;
-- add integration tests for handler-to-service flows;
-- add rate limiting or concurrency caps for heavy download tasks;
-- add metrics or observability hooks if the bot grows.
-
-## Summary
-
-The project is intentionally built around a simple modular pattern:
-
-- `core` defines contracts and models;
-- `logic` assembles and executes behavior;
-- `api` exposes Telegram transport handlers;
-- `ApplicationContext` wires dependencies;
-- `ModuleRegistry` enables pluggable features;
-- middleware protects access globally;
-- background tasks keep the bot responsive during heavy operations.
-
-For a personal Telegram bot, this architecture is small enough to stay maintainable and strict enough to scale with additional feature modules.
+Отдельный файл лицензии в репозитории пока отсутствует. До добавления лицензии использование и распространение кода регулируется владельцем проекта.
