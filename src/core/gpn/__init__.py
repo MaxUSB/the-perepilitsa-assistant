@@ -1,10 +1,11 @@
-from .config import GpnFuelMapConfig
+from .config import GpnConfig
 from .consts import REQUEST_BODY, REQUEST_HEADERS
-from .models import Station
+from .models import FuelAvailability, Station
 
 __all__ = [
     "REQUEST_BODY",
     "REQUEST_HEADERS",
-    "GpnFuelMapConfig",
+    "FuelAvailability",
+    "GpnConfig",
     "Station",
 ]

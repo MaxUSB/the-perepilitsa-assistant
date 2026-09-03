@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from src.core.app.config import AppConfig
 from src.core.bot.config import BotConfig
-from src.core.gpn_fuel_map import GpnFuelMapConfig
+from src.core.gpn import GpnConfig
 from src.core.youtube import YoutubeConfig
 from src.logic.youtube import YoutubeRequestStore, YoutubeService, YtDlpYoutubeClient
 
@@ -19,7 +19,7 @@ class ApplicationContext:
     youtube_store: YoutubeRequestStore
     youtube_service: YoutubeService
 
-    gpn_fuel_map_config: GpnFuelMapConfig
+    gpn_config: GpnConfig
 
     @classmethod
     def from_configs(
@@ -28,7 +28,7 @@ class ApplicationContext:
         app_config: AppConfig,
         bot_config: BotConfig,
         youtube_config: YoutubeConfig,
-        gpn_fuel_map_config: GpnFuelMapConfig,
+        gpn_config: GpnConfig,
     ) -> ApplicationContext:
         youtube_store = YoutubeRequestStore(request_ttl_seconds=youtube_config.request_ttl_seconds)
         youtube_client = YtDlpYoutubeClient(config=youtube_config)
@@ -44,5 +44,5 @@ class ApplicationContext:
             youtube_config=youtube_config,
             youtube_store=youtube_store,
             youtube_service=youtube_service,
-            gpn_fuel_map_config=gpn_fuel_map_config,
+            gpn_config=gpn_config,
         )

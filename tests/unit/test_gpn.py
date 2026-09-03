@@ -1,0 +1,203 @@
+import asyncio
+from typing import cast
+from unittest.mock import AsyncMock
+
+import httpx
+from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery, Message
+
+from src.core.gpn import GpnConfig, Station
+from src.logic.gpn.client import GpnClient
+from src.logic.gpn.module import GpnModule, dismiss_gpn_notification
+
+_RECIPIENT_COUNT = 2
+
+
+def station(*, station_id: int = 1, oils: dict[str, bool], address: str = "Республики, 1") -> Station:
+    return Station(id=station_id, city="Тюмень", address=address, oils=oils)
+
+
+def create_module(*, recipient_ids: frozenset[int] = frozenset({1})) -> tuple[GpnModule, AsyncMock, AsyncMock]:
+    bot = AsyncMock(spec=Bot)
+    client = AsyncMock(spec=GpnClient)
+    config = GpnConfig.model_validate(
+        {
+            "GPN_URL": "https://example.com",
+            "GPN_INTERVAL_SECONDS": 60,
+            "GPN_REQUEST_TIMEOUT_SECONDS": 30,
+            "GPN_RECIPIENT_IDS": recipient_ids,
+        }
+    )
+    module = GpnModule(bot=cast(Bot, bot), config=config)
+    module._client = cast(GpnClient, client)
+    return module, bot, client
+
+
+async def test_client_keeps_rotated_csrf_cookies_and_parses_station_oils() -> None:
+    requests: list[httpx.Request] = []
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        response_number = len(requests)
+        return httpx.Response(
+            200,
+            headers=[
+                ("set-cookie", f"session-cookie=session-{response_number}; Path=/; Secure; HttpOnly"),
+                ("set-cookie", f"csrf-token-name=name-{response_number}; Path=/; Secure"),
+                ("set-cookie", f"csrf-token-value=value-{response_number}; Path=/; Secure"),
+            ],
+            json={
+                "oilProducts": [{"id": 12, "shortTitle": "95"}],
+                "stations": [
+                    {"GPNAZSID": 1, "city": "Тюмень", "address": "Республики, 1", "oils": {"12": True}},
+                    {"GPNAZSID": 2, "city": "Москва", "address": "Тверская, 1", "oils": {"12": True}},
+                ],
+            },
+        )
+
+    client = GpnClient(
+        url="https://example.com",
+        request_timeout_seconds=30,
+        transport=httpx.MockTransport(handle_request),
+    )
+
+    stations = await client.get_city_stations("Тюмень")
+    await client.get_city_stations("Тюмень")
+    await client.close()
+
+    assert stations == [station(oils={"95": True})]
+    assert requests[0].headers["user-agent"].startswith("Mozilla/5.0")
+    assert "session-cookie=session-1" in requests[1].headers["cookie"]
+    assert "csrf-token-name=name-1" in requests[1].headers["cookie"]
+    assert "csrf-token-value=value-1" in requests[1].headers["cookie"]
+
+
+def test_finds_only_false_to_true_oil_transitions() -> None:
+    previous = [station(oils={"92": False, "95": True, "G-100": False})]
+    current = [station(oils={"92": True, "95": False, "G-100": False, "ДТ": True})]
+
+    notifications = GpnModule._find_newly_available_fuels(previous, current)
+
+    assert len(notifications) == 1
+    assert notifications[0].oils == ("92",)
+
+
+def test_groups_multiple_appeared_oils_by_station() -> None:
+    previous = [station(oils={"92": False, "95": False})]
+    current = [station(oils={"92": True, "95": True})]
+
+    notifications = GpnModule._find_newly_available_fuels(previous, current)
+
+    assert len(notifications) == 1
+    assert notifications[0].oils == ("92", "95")
+
+
+def test_ignores_new_station_and_new_oil_without_previous_false_value() -> None:
+    previous = [station(station_id=1, oils={"92": True})]
+    current = [
+        station(station_id=1, oils={"92": True, "95": True}),
+        station(station_id=2, oils={"92": True}),
+    ]
+
+    assert GpnModule._find_newly_available_fuels(previous, current) == []
+
+
+async def test_first_response_only_initializes_state() -> None:
+    module, bot, client = create_module()
+    client.get_city_stations.return_value = [station(oils={"95": True})]
+
+    await module._check_api()
+
+    assert module._state == [station(oils={"95": True})]
+    bot.send_message.assert_not_awaited()
+
+
+async def test_combines_all_changed_stations_into_one_message_per_recipient() -> None:
+    module, bot, client = create_module(recipient_ids=frozenset({1, 2}))
+    client.get_city_stations.side_effect = [
+        [
+            station(station_id=1, oils={"95": False}),
+            station(station_id=2, oils={"92": False, "G-100": False}, address="Широтная, 6"),
+        ],
+        [
+            station(station_id=1, oils={"95": True}),
+            station(station_id=2, oils={"92": True, "G-100": True}, address="Широтная, 6"),
+        ],
+    ]
+
+    await module._check_api()
+    await module._check_api()
+
+    assert bot.send_message.await_count == _RECIPIENT_COUNT
+    call = bot.send_message.await_args_list[0]
+    text = call.kwargs["text"]
+    assert "⛽️" in text
+    assert "Тюмень, Республики, 1" in text
+    assert "В наличии: 95" in text
+    assert "Тюмень, Широтная, 6" in text
+    assert "В наличии: 92, G-100" in text
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].text == "👌 Ок"
+
+
+async def test_does_not_notify_when_oils_do_not_appear() -> None:
+    module, bot, client = create_module()
+    client.get_city_stations.side_effect = [
+        [station(oils={"92": True, "95": True})],
+        [station(oils={"92": False, "95": True}, address="Новый адрес")],
+    ]
+
+    await module._check_api()
+    await module._check_api()
+
+    bot.send_message.assert_not_awaited()
+
+
+async def test_dismiss_callback_answers_and_deletes_message() -> None:
+    callback_query = AsyncMock(spec=CallbackQuery)
+    message = AsyncMock(spec=Message)
+    callback_query.answer = AsyncMock()
+    message.delete = AsyncMock()
+    callback_query.message = message
+
+    await dismiss_gpn_notification(cast(CallbackQuery, callback_query))
+
+    callback_query.answer.assert_awaited_once()
+    message.delete.assert_awaited_once()
+
+
+async def test_dismiss_callback_ignores_already_deleted_message() -> None:
+    callback_query = AsyncMock(spec=CallbackQuery)
+    message = AsyncMock(spec=Message)
+    callback_query.answer = AsyncMock()
+    message.delete = AsyncMock()
+    message.delete.side_effect = TelegramBadRequest(method=AsyncMock(), message="message not found")
+    callback_query.message = message
+
+    await dismiss_gpn_notification(cast(CallbackQuery, callback_query))
+
+    callback_query.answer.assert_awaited_once()
+    message.delete.assert_awaited_once()
+
+
+async def test_module_starts_background_task_and_closes_client_on_shutdown() -> None:
+    module, _, client = create_module()
+    request_started = asyncio.Event()
+
+    async def get_city_stations(city: str) -> list[Station]:
+        assert city == "Тюмень"
+        request_started.set()
+        return []
+
+    client.get_city_stations.side_effect = get_city_stations
+
+    await module.startup()
+    await asyncio.wait_for(request_started.wait(), timeout=1)
+
+    assert module._task is not None
+    assert not module._task.done()
+
+    await module.shutdown()
+
+    assert module._task is None
+    client.close.assert_awaited_once()

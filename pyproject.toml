@@ -43,8 +43,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"*.py" = ["RUF001"]
 "__init__.py" = ["F401"]
-"tests/**/*.py" = ["S101"]
+"tests/**/*.py" = ["S101", "SLF001"]
 
 
 # PYTEST

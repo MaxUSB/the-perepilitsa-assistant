@@ -1,9 +1,9 @@
 import httpx
 
-from src.core.gpn_fuel_map import REQUEST_BODY, REQUEST_HEADERS, Station
+from src.core.gpn import REQUEST_BODY, REQUEST_HEADERS, Station
 
 
-class GpnFuelMapClient:
+class GpnClient:
     def __init__(
         self,
         *,

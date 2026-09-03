@@ -11,7 +11,7 @@ from aiogram.enums import ParseMode
 
 from src.core.app.config import AppConfig
 from src.core.bot.config import BotConfig
-from src.core.gpn_fuel_map import GpnFuelMapConfig
+from src.core.gpn import GpnConfig
 from src.core.youtube import YoutubeConfig
 from src.logic.app.context import ApplicationContext
 from src.logic.app.factory import create_dispatcher, create_module_registry
@@ -28,7 +28,7 @@ async def run() -> None:
     app_config = AppConfig()
     bot_config = BotConfig()
     youtube_config = YoutubeConfig()
-    gpn_fuel_map_config = GpnFuelMapConfig()  # ty:ignore[missing-argument]
+    gpn_config = GpnConfig()  # ty:ignore[missing-argument]
 
     configure_logging(app_config)
 
@@ -36,7 +36,7 @@ async def run() -> None:
         app_config=app_config,
         bot_config=bot_config,
         youtube_config=youtube_config,
-        gpn_fuel_map_config=gpn_fuel_map_config,
+        gpn_config=gpn_config,
     )
     api_server = (
         TelegramAPIServer.from_base(bot_config.telegram_api_base_url, is_local=True)

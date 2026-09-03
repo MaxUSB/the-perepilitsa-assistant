@@ -6,3 +6,8 @@ class Station(BaseModel):
     city: str
     address: str
     oils: dict[str, bool]
+
+
+class FuelAvailability(BaseModel):
+    station: Station
+    oils: tuple[str, ...]
