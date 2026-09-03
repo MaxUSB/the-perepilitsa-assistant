@@ -163,7 +163,7 @@ async def test_combines_all_changed_stations_into_one_message_per_recipient() ->
     assert "⛽️" in text
     assert "Республики, 1" in text
     assert "Тюмень" not in text
-    assert 'href="https://2gis.ru/tyumen?m=65.5%2C57.1%2F17"' in text
+    assert 'href="https://2gis.ru/tyumen?m=65.5%2C57.1%2F17&traffic"' in text
     assert "В наличии: 95" in text
     assert "Широтная, 6" in text
     assert "В наличии: 92, G-100" in text
@@ -271,8 +271,8 @@ async def test_fuel_selection_edits_menu_with_matching_stations_and_2gis_links()
     assert "🔥 G-95" in text
     assert "Ямская, 1" not in text
     assert "Тюмень" not in text
-    assert 'href="https://2gis.ru/tyumen?m=65.5%2C57.1%2F17"' in text
-    assert 'href="https://2gis.ru/tyumen?m=65.6%2C57.2%2F17"' in text
+    assert 'href="https://2gis.ru/tyumen?m=65.5%2C57.1%2F17&traffic"' in text
+    assert 'href="https://2gis.ru/tyumen?m=65.6%2C57.2%2F17&traffic"' in text
     assert call.kwargs["reply_markup"].inline_keyboard[0][0].text == "👌 Ок"
 
 
