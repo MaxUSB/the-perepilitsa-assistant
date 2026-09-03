@@ -7,7 +7,7 @@ import logging
 
 from aiogram import Bot, Router
 
-from src.core.gpn_fuel_map.config import GpnFuelMapConfig
+from src.core.gpn_fuel_map import GpnFuelMapConfig, Station
 from src.logic.gpn_fuel_map.client import GpnFuelMapClient
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class GpnFuelMapModule:
             if config.url is not None
             else None
         )
-        self._state: list | None = None
+        self._state: list[Station] | None = None
         self._task: asyncio.Task[None] | None = None
 
     def router(self) -> Router:
@@ -38,13 +38,14 @@ class GpnFuelMapModule:
         logger.info("GPN fuel map started")
 
     async def shutdown(self) -> None:
-        if self._task is None:
-            return
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
 
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
-        self._task = None
+        if self._client is not None:
+            await self._client.close()
 
     async def _poll(self) -> None:
         while True:
@@ -61,7 +62,7 @@ class GpnFuelMapModule:
         if self._client is None:
             return
 
-        new_state = await self._client.get_fuel_map()
+        new_state = await self._client.get_city_stations("Тюмень")
         previous_state = self._state
         self._state = new_state
 
@@ -77,11 +78,11 @@ class GpnFuelMapModule:
             except Exception:
                 logger.exception("Failed to send GPN fuel map notification to chat %s", recipient_id)
 
-    def _should_notify(self, previous_state: list, new_state: list) -> bool:
+    def _should_notify(self, previous_state: list[Station], new_state: list[Station]) -> bool:
         """Replace this comparison with conditions specific to the API response."""
         return previous_state != new_state
 
-    def _build_message(self, previous_state: list, new_state: list) -> str:
+    def _build_message(self, previous_state: list[Station], new_state: list[Station]) -> str:
         """Replace this formatter with the fields that should be sent to Telegram."""
         _ = previous_state
         return f"API data changed:\n<pre>{html.escape(repr(new_state))}</pre>"
