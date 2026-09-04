@@ -180,6 +180,19 @@ YOUTUBE_COOKIES_FROM_BROWSER=""
 
 При Docker-запуске файл должен быть доступен внутри контейнера. Не добавляйте cookies и `.env` в Git.
 
+Production Compose подключает локальный каталог `.secrets` к `/opt/app/.secrets` в режиме `read-only`. Перед запуском создайте каталог и поместите в него файл:
+
+```bash
+mkdir -p .secrets
+cp <ПУТЬ_К_COOKIES> .secrets/youtube-cookies.txt
+```
+
+В `.env` укажите контейнерный путь:
+
+```env
+YOUTUBE_COOKIES_PATH="/opt/app/.secrets/youtube-cookies.txt"
+```
+
 ## Локальная Разработка
 
 1. Установите `uv` и Python 3.14.

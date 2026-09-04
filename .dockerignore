@@ -5,6 +5,7 @@
 .vscode/
 .venv/
 .env
+.secrets/
 
 # CACHES
 .pytest_cache/
