@@ -8,4 +8,4 @@ services:
         required: false
     command: ["uv", "run", "--frozen", "--no-sync", "python", "-m", "src.main"]
     volumes:
-      - ./.secrets:/opt/app/.secrets:ro
+      - ./.secrets:/opt/app/.secrets
