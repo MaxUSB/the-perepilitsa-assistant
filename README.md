@@ -42,7 +42,7 @@
 - Python 3.14;
 - [uv](https://docs.astral.sh/uv/);
 - `ffmpeg`;
-- Node.js и npm для используемых `yt-dlp` сценариев.
+- Deno 2.3+ и EJS-компоненты `yt-dlp` для решения JavaScript challenge YouTube.
 
 ## Быстрый Старт Через Docker
 

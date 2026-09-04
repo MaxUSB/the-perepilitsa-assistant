@@ -1,13 +1,18 @@
 import asyncio
 import shutil
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from src.core.youtube.client import YoutubeProgressCallback
+from src.core.youtube.client import (
+    YoutubeAuthenticationRequiredError,
+    YoutubeBrowserCookiesUnsupportedError,
+    YoutubeProgressCallback,
+    YoutubeVideoUnavailableError,
+)
 from src.core.youtube.config import YoutubeConfig
 from src.core.youtube.models import (
     YoutubeDownloadOption,
@@ -18,14 +23,6 @@ from src.core.youtube.models import (
 
 if TYPE_CHECKING:
     from yt_dlp import YoutubeDL as YoutubeDLType
-
-
-class YoutubeAuthenticationRequiredError(Exception):
-    pass
-
-
-class YoutubeBrowserCookiesUnsupportedError(Exception):
-    pass
 
 
 class _YtDlpLogger:
@@ -79,10 +76,22 @@ class YtDlpYoutubeClient:
         loop = asyncio.get_running_loop()
         request_dir = self._resolve_request_dir(request_id)
         request_dir.mkdir(parents=True, exist_ok=True)
+        progress_queue: asyncio.Queue[YoutubeDownloadProgressSnapshot | None] = asyncio.Queue(maxsize=1)
+
+        async def consume_progress() -> None:
+            while snapshot := await progress_queue.get():
+                if progress_callback is not None:
+                    await progress_callback(snapshot)
+
+        progress_task = asyncio.create_task(consume_progress(), name=f"youtube-progress-{request_id}")
+
+        def enqueue_progress(snapshot: YoutubeDownloadProgressSnapshot) -> None:
+            if progress_queue.full():
+                _ = progress_queue.get_nowait()
+            progress_queue.put_nowait(snapshot)
 
         def sync_progress_hook(payload: Mapping[str, object]) -> None:
-            callback = progress_callback
-            if callback is None:
+            if progress_callback is None:
                 return
 
             snapshot = YoutubeDownloadProgressSnapshot(
@@ -94,20 +103,23 @@ class YtDlpYoutubeClient:
                 filename=str(payload.get("filename")) if payload.get("filename") is not None else None,
             )
 
-            def schedule_progress_update(update_snapshot: YoutubeDownloadProgressSnapshot) -> None:
-                coroutine = cast(Coroutine[Any, Any, None], callback(update_snapshot))
-                progress_task: asyncio.Task[None] = asyncio.create_task(coroutine)
-                _ = progress_task
+            loop.call_soon_threadsafe(enqueue_progress, snapshot)
 
-            loop.call_soon_threadsafe(schedule_progress_update, snapshot)
-
-        await asyncio.to_thread(
-            self._download_video,
-            url,
-            option,
-            request_dir,
-            sync_progress_hook,
-        )
+        try:
+            await asyncio.to_thread(
+                self._download_video,
+                url,
+                option,
+                request_dir,
+                sync_progress_hook,
+            )
+            await asyncio.sleep(0)
+            await progress_queue.put(None)
+            await progress_task
+        except BaseException:
+            progress_task.cancel()
+            await asyncio.gather(progress_task, return_exceptions=True)
+            raise
         result_file = _pick_downloaded_file(request_dir)
         if result_file is None:
             msg = "yt-dlp finished without a resulting media file"
@@ -127,12 +139,7 @@ class YtDlpYoutubeClient:
             await asyncio.to_thread(shutil.rmtree, request_dir, ignore_errors=True)
 
     def _extract_metadata(self, url: str) -> dict[str, object]:
-        try:
-            return self._extract_metadata_once(url=url, use_cookies=True)
-        except DownloadError as error:
-            if self._should_retry_metadata_without_cookies(error):
-                return self._extract_metadata_once(url=url, use_cookies=False)
-            raise
+        return self._extract_metadata_once(url=url, use_cookies=True)
 
     def _extract_metadata_once(self, *, url: str, use_cookies: bool) -> dict[str, object]:
         youtube_dl_factory = cast(Any, YoutubeDL)
@@ -141,7 +148,7 @@ class YtDlpYoutubeClient:
             with youtube_dl:
                 extracted = youtube_dl.extract_info(url, download=False)
         except DownloadError as error:
-            self._raise_if_authentication_required(error)
+            self._raise_domain_error(error)
             raise
         return cast(dict[str, object], extracted)
 
@@ -152,7 +159,44 @@ class YtDlpYoutubeClient:
         request_dir: Path,
         progress_hook: Callable[[Mapping[str, object]], None],
     ) -> None:
-        options = self._base_options(skip_download=False)
+        has_cookies = self._config.cookies_path is not None or self._config.cookies_from_browser is not None
+        try:
+            self._download_video_once(
+                url=url,
+                option=option,
+                request_dir=request_dir,
+                progress_hook=progress_hook,
+                use_cookies=False,
+            )
+        except DownloadError as error:
+            if not has_cookies:
+                self._raise_domain_error(error)
+                raise
+
+            shutil.rmtree(request_dir, ignore_errors=True)
+            request_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self._download_video_once(
+                    url=url,
+                    option=option,
+                    request_dir=request_dir,
+                    progress_hook=progress_hook,
+                    use_cookies=True,
+                )
+            except DownloadError as retry_error:
+                self._raise_domain_error(retry_error)
+                raise
+
+    def _download_video_once(
+        self,
+        *,
+        url: str,
+        option: YoutubeDownloadOption,
+        request_dir: Path,
+        progress_hook: Callable[[Mapping[str, object]], None],
+        use_cookies: bool,
+    ) -> None:
+        options = self._base_options(skip_download=False, use_cookies=use_cookies)
         options.update(
             {
                 "format": option.selector,
@@ -163,12 +207,8 @@ class YtDlpYoutubeClient:
         )
         youtube_dl_factory = cast(Any, YoutubeDL)
         youtube_dl = cast("YoutubeDLType", youtube_dl_factory(options))
-        try:
-            with youtube_dl:
-                youtube_dl.download([url])
-        except DownloadError as error:
-            self._raise_if_authentication_required(error)
-            raise
+        with youtube_dl:
+            youtube_dl.download([url])
 
     def _base_options(self, *, skip_download: bool, use_cookies: bool = True) -> dict[str, object]:
         download_dir = self._config.download_dir.resolve()
@@ -179,6 +219,8 @@ class YtDlpYoutubeClient:
             "skip_download": skip_download,
             "paths": {"home": str(download_dir)},
             "logger": _YtDlpLogger(),
+            "js_runtimes": {"deno": {}},
+            "extractor_args": {"youtube": {"player_client": ["web_embedded"]}},
         }
         if use_cookies and self._config.cookies_path is not None:
             options["cookiefile"] = str(self._config.cookies_path.resolve())
@@ -202,7 +244,7 @@ class YtDlpYoutubeClient:
     def _resolve_request_dir(self, request_id: str) -> Path:
         return (self._config.download_dir / request_id).resolve()
 
-    def _raise_if_authentication_required(self, error: DownloadError) -> None:
+    def _raise_domain_error(self, error: DownloadError) -> None:
         error_message = str(error)
         if "unsupported platform: linux" in error_message and self._config.cookies_from_browser is not None:
             raise YoutubeBrowserCookiesUnsupportedError(error_message) from error
@@ -214,12 +256,21 @@ class YtDlpYoutubeClient:
         ):
             raise YoutubeAuthenticationRequiredError(error_message) from error
 
-    def _should_retry_metadata_without_cookies(self, error: DownloadError) -> bool:
-        if self._config.cookies_path is None and self._config.cookies_from_browser is None:
-            return False
+        if "Requested format is not available" in error_message or "Only images are available" in error_message:
+            raise YoutubeVideoUnavailableError(error_message) from error
 
-        error_message = str(error)
-        return "Requested format is not available" in error_message
+
+class _ParsedDownloadFormat:
+    def __init__(
+        self,
+        *,
+        kind: str,
+        option: YoutubeDownloadOption,
+        audio_priority: tuple[int, bool, bool, float, int] = (-1, False, False, -1.0, -1),
+    ) -> None:
+        self.kind = kind
+        self.option = option
+        self.audio_priority = audio_priority
 
 
 def _build_download_options(*, metadata: Mapping[str, object], max_quality: int) -> list[YoutubeDownloadOption]:
@@ -227,7 +278,7 @@ def _build_download_options(*, metadata: Mapping[str, object], max_quality: int)
     if not isinstance(raw_formats, list):
         return []
 
-    audio_only_formats: list[tuple[str, int | None]] = []
+    audio_only_formats: list[_ParsedDownloadFormat] = []
     progressive_candidates: dict[int, YoutubeDownloadOption] = {}
     adaptive_candidates: dict[int, YoutubeDownloadOption] = {}
 
@@ -237,7 +288,7 @@ def _build_download_options(*, metadata: Mapping[str, object], max_quality: int)
             continue
 
         if parsed_format.kind == "audio":
-            audio_only_formats.append((parsed_format.option.selector, parsed_format.option.estimated_size_bytes))
+            audio_only_formats.append(parsed_format)
             continue
 
         option = parsed_format.option
@@ -272,11 +323,12 @@ def _build_download_options(*, metadata: Mapping[str, object], max_quality: int)
     return options[:4]
 
 
-def _pick_preferred_audio_format(audio_formats: list[tuple[str, int | None]]) -> tuple[str, int | None] | None:
+def _pick_preferred_audio_format(audio_formats: list[_ParsedDownloadFormat]) -> tuple[str, int | None] | None:
     if not audio_formats:
         return None
 
-    return max(audio_formats, key=lambda item: item[1] if item[1] is not None else -1)
+    preferred = max(audio_formats, key=lambda item: item.audio_priority)
+    return preferred.option.selector, preferred.option.estimated_size_bytes
 
 
 def _is_better_option(*, option: YoutubeDownloadOption, other: YoutubeDownloadOption) -> bool:
@@ -310,12 +362,6 @@ def _build_adaptive_download_option(
     )
 
 
-class _ParsedDownloadFormat:
-    def __init__(self, *, kind: str, option: YoutubeDownloadOption) -> None:
-        self.kind = kind
-        self.option = option
-
-
 def _parse_download_format(*, raw_format: object, max_quality: int) -> _ParsedDownloadFormat | None:
     if not isinstance(raw_format, Mapping):
         return None
@@ -330,6 +376,9 @@ def _parse_download_format(*, raw_format: object, max_quality: int) -> _ParsedDo
     ext = str(raw_format.get("ext") or "mp4")
 
     if acodec != "none" and vcodec == "none":
+        format_note = str(raw_format.get("format_note") or "")
+        language_preference = _coerce_int(raw_format.get("language_preference")) or -1
+        audio_bitrate = _coerce_float(raw_format.get("abr")) or -1.0
         return _ParsedDownloadFormat(
             kind="audio",
             option=YoutubeDownloadOption(
@@ -338,6 +387,13 @@ def _parse_download_format(*, raw_format: object, max_quality: int) -> _ParsedDo
                 selector=format_id,
                 container=ext,
                 estimated_size_bytes=size_bytes,
+            ),
+            audio_priority=(
+                language_preference,
+                "DRC" not in format_note,
+                ext == "m4a" or acodec.startswith("mp4a"),
+                audio_bitrate,
+                size_bytes if size_bytes is not None else -1,
             ),
         )
 

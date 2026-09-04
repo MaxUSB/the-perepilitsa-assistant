@@ -8,6 +8,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.api.telegram.callbacks import YoutubeDownloadCallback
 from src.api.telegram.filters import YoutubeUrlFilter
+from src.core.youtube.client import (
+    YoutubeAuthenticationRequiredError,
+    YoutubeBrowserCookiesUnsupportedError,
+    YoutubeVideoUnavailableError,
+)
 from src.core.youtube.models import YoutubeDownloadOption, YoutubeVideoPreview
 from src.core.youtube.utils import (
     build_no_uploadable_formats_caption,
@@ -16,7 +21,6 @@ from src.core.youtube.utils import (
     build_youtube_browser_cookies_unsupported_caption,
     format_bytes,
 )
-from src.logic.youtube.client import YoutubeAuthenticationRequiredError, YoutubeBrowserCookiesUnsupportedError
 from src.logic.youtube.service import YoutubeService
 
 
@@ -35,6 +39,9 @@ def create_youtube_router(background_tasks: set[asyncio.Task[None]]) -> Router:
             return
         except YoutubeBrowserCookiesUnsupportedError:
             await message.answer(build_youtube_browser_cookies_unsupported_caption())
+            return
+        except YoutubeVideoUnavailableError:
+            await message.answer("<b>⚠️ Видео недоступно</b>\nНе удалось получить доступные форматы этого видео.")
             return
 
         uploadable_options = youtube_service.filter_uploadable_options(preview_request.preview.options)

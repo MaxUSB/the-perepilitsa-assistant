@@ -11,6 +11,18 @@ from src.core.youtube.models import (
 type YoutubeProgressCallback = Callable[[YoutubeDownloadProgressSnapshot], Awaitable[None]]
 
 
+class YoutubeAuthenticationRequiredError(Exception):
+    pass
+
+
+class YoutubeBrowserCookiesUnsupportedError(Exception):
+    pass
+
+
+class YoutubeVideoUnavailableError(Exception):
+    pass
+
+
 class YoutubeClient(Protocol):
     async def inspect(self, url: str) -> YoutubeVideoPreview: ...
 

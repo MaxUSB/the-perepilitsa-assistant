@@ -8,7 +8,13 @@ from aiogram.exceptions import TelegramEntityTooLarge
 from aiogram.types import Message
 
 from src.core.bot.config import BotConfig
-from src.core.youtube.client import YoutubeClient, YoutubeProgressCallback
+from src.core.youtube.client import (
+    YoutubeAuthenticationRequiredError,
+    YoutubeBrowserCookiesUnsupportedError,
+    YoutubeClient,
+    YoutubeProgressCallback,
+    YoutubeVideoUnavailableError,
+)
 from src.core.youtube.config import YoutubeConfig
 from src.core.youtube.models import (
     YoutubeDownloadOption,
@@ -22,7 +28,6 @@ from src.core.youtube.utils import (
     build_youtube_auth_required_caption,
     build_youtube_browser_cookies_unsupported_caption,
 )
-from src.logic.youtube.client import YoutubeAuthenticationRequiredError, YoutubeBrowserCookiesUnsupportedError
 from src.logic.youtube.store import YoutubeRequestStore
 from src.logic.youtube.upload import ProgressFSInputFile
 
@@ -179,6 +184,13 @@ class YoutubeService:
                 chat_id=request.chat_id,
                 message_id=progress_message_id,
                 text=build_youtube_browser_cookies_unsupported_caption(),
+            )
+        except YoutubeVideoUnavailableError:
+            await self._safe_edit_message(
+                bot=bot,
+                chat_id=request.chat_id,
+                message_id=progress_message_id,
+                text="<b>⚠️ Видео недоступно</b>\nНе удалось получить выбранный формат видео.",
             )
         except Exception:
             logger.exception("YouTube download failed for request %s", request_id)
