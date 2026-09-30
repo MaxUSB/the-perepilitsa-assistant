@@ -14,7 +14,7 @@ from src.logic.gpn.service import GpnService
 
 DISMISS_CALLBACK_DATA = "gpn:dismiss"
 DISMISS_KEYBOARD = InlineKeyboardMarkup(
-    inline_keyboard=[[InlineKeyboardButton(text="👌 Ок", callback_data=DISMISS_CALLBACK_DATA)]]
+    inline_keyboard=[[InlineKeyboardButton(text="❌ Закрыть", callback_data=DISMISS_CALLBACK_DATA)]]
 )
 
 
@@ -137,7 +137,7 @@ def build_notify_keyboard(groups: dict[str, tuple[str, ...]], subscribed: frozen
         for key in groups
     ]
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-    rows.append([InlineKeyboardButton(text="Закрыть", callback_data=DISMISS_CALLBACK_DATA)])
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data=DISMISS_CALLBACK_DATA)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

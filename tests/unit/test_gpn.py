@@ -340,7 +340,7 @@ async def test_notify_menu_toggle_and_dismiss_button() -> None:
     call = message.answer.await_args
     assert call is not None
     keyboard = call.kwargs["reply_markup"]
-    assert [button.text for row in keyboard.inline_keyboard for button in row] == ["🔴 92", "🔴 95", "Закрыть"]
+    assert [button.text for row in keyboard.inline_keyboard for button in row] == ["🔴 92", "🔴 95", "❌ Закрыть"]
     assert keyboard.inline_keyboard[-1][0].callback_data == "gpn:dismiss"
 
     callback = AsyncMock(spec=CallbackQuery)
@@ -353,7 +353,7 @@ async def test_notify_menu_toggle_and_dismiss_button() -> None:
     call = callback.message.edit_reply_markup.await_args
     assert call is not None
     updated = call.kwargs["reply_markup"]
-    assert [button.text for row in updated.inline_keyboard for button in row] == ["🔴 92", "🟢 95", "Закрыть"]
+    assert [button.text for row in updated.inline_keyboard for button in row] == ["🔴 92", "🟢 95", "❌ Закрыть"]
 
 
 async def test_notify_toggle_rejects_stale_group() -> None:
@@ -401,6 +401,7 @@ def test_gpn_message_builders_include_2gis_links_and_escape_values() -> None:
     assert "https://2gis.ru/?m=65.5%2C57.1%2F17&traffic" in availability
     assert "Республики &lt;1&gt;" in station_list
     assert build_fuel_keyboard({"95": ("95",)}).inline_keyboard[0][0].text == "⛽ 95"
+    assert DISMISS_KEYBOARD.inline_keyboard[0][0].text == "❌ Закрыть"
     assert "Сейчас его нет" in build_fuel_stations_message("95", ("95",), [], datetime.now(UTC))
 
 
