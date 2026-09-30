@@ -21,8 +21,9 @@ class GpnConfig(BaseSettings):
     request_timeout_seconds: float = Field(gt=0)
     recipient_ids: Annotated[frozenset[int], NoDecode]
     state_path: Path
+    subscriptions_path: Path
 
-    @field_validator("state_path", mode="before")
+    @field_validator("state_path", "subscriptions_path", mode="before")
     @classmethod
     def expand_state_path(cls, value: object) -> Path:
         return Path(str(value)).expanduser()

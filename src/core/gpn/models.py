@@ -7,7 +7,7 @@ class Station(BaseModel):
     address: str
     latitude: float
     longitude: float
-    oils: dict[str, bool]
+    oils: dict[str, bool | None]
 
 
 class FuelAvailability(BaseModel):

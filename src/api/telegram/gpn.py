@@ -1,5 +1,6 @@
 import contextlib
 import html
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from aiogram import F, Router
@@ -7,7 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from src.api.telegram.callbacks import GpnFuelCallback
+from src.api.telegram.callbacks import GpnFuelCallback, GpnNotifyCallback
 from src.core.gpn import FuelAvailability, Station
 from src.logic.gpn.service import GpnService
 
@@ -20,7 +21,9 @@ DISMISS_KEYBOARD = InlineKeyboardMarkup(
 def create_gpn_router() -> Router:
     router = Router(name="gpn")
     router.message.register(handle_fuel_command, Command("fuel"))
+    router.message.register(handle_notify_fuel_command, Command("notify_fuel"))
     router.callback_query.register(handle_fuel_selection, GpnFuelCallback.filter())
+    router.callback_query.register(handle_notify_fuel_toggle, GpnNotifyCallback.filter())
     router.callback_query.register(dismiss_gpn_notification, F.data == DISMISS_CALLBACK_DATA)
     return router
 
@@ -68,8 +71,45 @@ async def handle_fuel_selection(
     oil_names, stations = selection
     with contextlib.suppress(TelegramBadRequest):
         await callback_query.message.edit_text(
-            build_fuel_stations_message(callback_data.group_key, oil_names, stations),
+            build_fuel_stations_message(callback_data.group_key, oil_names, stations, gpn_service.updated_at),
             reply_markup=DISMISS_KEYBOARD,
+        )
+
+
+async def handle_notify_fuel_command(message: Message, gpn_service: GpnService) -> None:
+    with contextlib.suppress(TelegramBadRequest):
+        await message.delete()
+    groups = gpn_service.get_fuel_groups()
+    if not groups:
+        await message.answer("⏳ <b>Данные о топливе ещё загружаются</b>", reply_markup=DISMISS_KEYBOARD)
+        return
+    user = message.from_user
+    if user is None:
+        return
+    await message.answer(
+        "🔔 <b>Уведомления о наличии топлива</b>\n\nНажмите на топливо, чтобы включить или выключить уведомления.",
+        reply_markup=build_notify_keyboard(groups, gpn_service.subscribed_groups(user.id)),
+    )
+
+
+async def handle_notify_fuel_toggle(
+    callback_query: CallbackQuery, callback_data: GpnNotifyCallback, gpn_service: GpnService
+) -> None:
+    if not isinstance(callback_query.message, Message):
+        await callback_query.answer()
+        return
+    groups = gpn_service.get_fuel_groups()
+    if not groups or callback_data.group_key not in groups:
+        await callback_query.answer("Данные обновились. Откройте /notify_fuel заново.", show_alert=True)
+        return
+    result = await gpn_service.toggle_subscription(callback_query.from_user.id, callback_data.group_key)
+    if result is None:
+        await callback_query.answer("Данные обновились. Откройте /notify_fuel заново.", show_alert=True)
+        return
+    await callback_query.answer("Уведомления включены" if result else "Уведомления выключены")
+    with contextlib.suppress(TelegramBadRequest):
+        await callback_query.message.edit_reply_markup(
+            reply_markup=build_notify_keyboard(groups, gpn_service.subscribed_groups(callback_query.from_user.id))
         )
 
 
@@ -89,6 +129,18 @@ def build_fuel_keyboard(fuel_groups: dict[str, tuple[str, ...]]) -> InlineKeyboa
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def build_notify_keyboard(groups: dict[str, tuple[str, ...]], subscribed: frozenset[str]) -> InlineKeyboardMarkup:
+    buttons = [
+        InlineKeyboardButton(
+            text=f"{'🟢' if key in subscribed else '🔴'} {key}", callback_data=GpnNotifyCallback(group_key=key).pack()
+        )
+        for key in groups
+    ]
+    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(text="Закрыть", callback_data=DISMISS_CALLBACK_DATA)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def build_availability_message(notifications: list[FuelAvailability]) -> str:
     station_blocks = []
     for notification in notifications:
@@ -102,9 +154,16 @@ def build_availability_message(notifications: list[FuelAvailability]) -> str:
     return f"⛽️ <b>На заправках появилось топливо!</b>\n\n{stations}\n\nМожно ехать заправляться 🚗💨"
 
 
-def build_fuel_stations_message(group_key: str, oil_names: tuple[str, ...], stations: list[Station]) -> str:
+def build_fuel_stations_message(
+    group_key: str, oil_names: tuple[str, ...], stations: list[Station], updated_at: datetime | None = None
+) -> str:
+    updated = (
+        f"📅 {updated_at.astimezone(timezone(timedelta(hours=5))):%d.%m.%Y %H:%M}\n\n"
+        if updated_at is not None
+        else "\n\nВремя обновления неизвестно"
+    )
     if not stations:
-        return f"⛽️ <b>Топливо {html.escape(group_key)}</b>\n\nСейчас его нет ни на одной АЗС."
+        return f"⛽️ <b>Топливо {html.escape(group_key)}</b>\n\n{updated}Сейчас его нет ни на одной АЗС."
 
     station_lines = []
     for station in stations:
@@ -115,7 +174,7 @@ def build_fuel_stations_message(group_key: str, oil_names: tuple[str, ...], stat
             f'📍 <a href="{build_2gis_url(station)}"><b>{html.escape(station.address)}</b></a>\n🔥 {available_names}'
         )
 
-    return f"⛽️ <b>Где есть топливо {html.escape(group_key)}</b>\n\n" + "\n\n".join(station_lines)
+    return f"⛽️ <b>Наличие топлива {html.escape(group_key)}</b>\n\n{updated}" + "\n\n".join(station_lines)
 
 
 def build_2gis_url(station: Station) -> str:

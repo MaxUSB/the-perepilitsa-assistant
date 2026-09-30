@@ -6,6 +6,7 @@ from src.core.bot.config import BotConfig
 from src.core.gpn import GpnConfig
 from src.core.youtube import YoutubeConfig
 from src.logic.gpn import GpnService, GpnStateStore, HttpGpnClient
+from src.logic.gpn.store import GpnSubscriptionStore
 from src.logic.youtube import YoutubeRequestStore, YoutubeService, YtDlpYoutubeClient
 
 
@@ -48,6 +49,7 @@ class ApplicationContext:
             city=gpn_config.city,
             client=gpn_client,
             store=GpnStateStore(gpn_config.state_path),
+            subscriptions=GpnSubscriptionStore(gpn_config.subscriptions_path),
         )
         return cls(
             app_config=app_config,

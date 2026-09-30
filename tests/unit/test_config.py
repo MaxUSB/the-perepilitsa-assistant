@@ -69,6 +69,7 @@ def test_gpn_config_loads_prefixed_fields(monkeypatch: pytest.MonkeyPatch) -> No
         "GPN_REQUEST_TIMEOUT_SECONDS": "30",
         "GPN_RECIPIENT_IDS": "1,2",
         "GPN_STATE_PATH": "~/gpn-state.json",
+        "GPN_SUBSCRIPTIONS_PATH": "~/fuel-subscriptions.json",
     }
     for key, value in values.items():
         monkeypatch.setenv(key, value)
@@ -78,3 +79,4 @@ def test_gpn_config_loads_prefixed_fields(monkeypatch: pytest.MonkeyPatch) -> No
     assert config.city == "Тюмень"
     assert config.recipient_ids == frozenset({1, 2})
     assert config.state_path == Path("~/gpn-state.json").expanduser()
+    assert config.subscriptions_path == Path("~/fuel-subscriptions.json").expanduser()

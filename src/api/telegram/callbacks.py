@@ -8,3 +8,7 @@ class YoutubeDownloadCallback(CallbackData, prefix="yt"):
 
 class GpnFuelCallback(CallbackData, prefix="gpn_fuel"):
     group_key: str
+
+
+class GpnNotifyCallback(CallbackData, prefix="gpn_notify"):
+    group_key: str

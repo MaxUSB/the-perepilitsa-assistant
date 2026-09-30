@@ -59,12 +59,14 @@ class GpnModule:
         if not notifications:
             return
 
-        message = build_availability_message(notifications)
         for recipient_id in self._config.recipient_ids:
+            selected = self._service.notifications_for_user(recipient_id, notifications)
+            if not selected:
+                continue
             try:
                 await self._bot.send_message(
                     chat_id=recipient_id,
-                    text=message,
+                    text=build_availability_message(selected),
                     reply_markup=DISMISS_KEYBOARD,
                 )
             except asyncio.CancelledError:

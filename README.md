@@ -157,8 +157,9 @@ make prod-up-local
 | `GPN_CITY` | Город для фильтрации АЗС | `Тюмень` |
 | `GPN_INTERVAL_SECONDS` | Интервал опроса API | `60` |
 | `GPN_REQUEST_TIMEOUT_SECONDS` | Таймаут HTTP-запроса | `30` |
-| `GPN_RECIPIENT_IDS` | Получатели автоматических уведомлений | `123,456` |
+| `GPN_RECIPIENT_IDS` | Пользователи, которым доступны уведомления после подписки через `/notify_fuel` | `123,456` |
 | `GPN_STATE_PATH` | Файл постоянного snapshot | `.runtime/gpn/state.json` |
+| `GPN_SUBSCRIPTIONS_PATH` | Файл подписок на уведомления | `.runtime/gpn/subscriptions.json` |
 
 ### Локальный Telegram Bot API
 

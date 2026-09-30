@@ -5,11 +5,12 @@ from aiogram.types import Message
 WELCOME_MESSAGE = (
     "<b>🤖 The Perepilitsa Assistant</b>\n"
     "━━━━━━━━━━━━━━\n"
-    "<b>Что можно отправить:</b>\n"
-    "• 🎬 <b>Ссылка на YouTube</b>\n"
-    "  <i>youtube.com</i>\n\n"
-    "• ⛽️ <b>Поиск топлива на АЗС</b>\n"
-    "  <i>/fuel</i>"
+    "<b>Модули:</b>\n\n"
+    "🎬 <b>YouTube</b>\n"
+    "  <i>youtube.com/some-path - скачивание видео</i>\n\n"
+    "⛽️ <b>GPN</b>\n"
+    "  <i>/notify_fuel - уведомления о наличии топлива</i>\n\n"
+    "  <i>/fuel - наличие топлива</i>"
 )
 
 
