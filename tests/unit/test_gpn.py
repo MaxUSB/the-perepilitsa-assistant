@@ -221,6 +221,7 @@ async def test_module_sends_only_subscribed_fuels_to_each_recipient() -> None:
     assert "Республики, 1" in bot.send_message.await_args_list[0].kwargs["text"]
     assert "Широтная, 6" not in bot.send_message.await_args_list[0].kwargs["text"]
     assert "Широтная, 6" in bot.send_message.await_args_list[1].kwargs["text"]
+    assert all(call.kwargs["link_preview_options"].is_disabled for call in bot.send_message.await_args_list)
 
 
 async def test_module_does_not_send_without_opt_in() -> None:
@@ -280,8 +281,8 @@ async def test_fuel_command_deletes_command_and_shows_grouped_buttons() -> None:
     call = message.answer.await_args
     assert call is not None
     buttons = [button for row in call.kwargs["reply_markup"].inline_keyboard for button in row]
-    assert [button.text for button in buttons] == ["⛽ 92", "⛽ 95", "⛽ ДТ"]
-    assert [button.callback_data for button in buttons] == ["gpn_fuel:92", "gpn_fuel:95", "gpn_fuel:ДТ"]
+    assert [button.text for button in buttons] == ["⛽ 92", "⛽ 95", "⛽ ДТ", "❌ Закрыть"]
+    assert [button.callback_data for button in buttons] == ["gpn_fuel:92", "gpn_fuel:95", "gpn_fuel:ДТ", "gpn:dismiss"]
 
 
 async def test_fuel_command_reports_loading_state() -> None:
@@ -322,11 +323,12 @@ async def test_fuel_selection_edits_message_with_matching_stations() -> None:
     callback_query.answer.assert_awaited_once()
     call = message.edit_text.await_args
     assert call is not None
-    assert "Где есть топливо 95" in call.args[0]
+    assert "Наличие топлива 95" in call.args[0]
     assert "Республики, 1" in call.args[0]
     assert "Широтная, 6" in call.args[0]
     assert "Тюмень" not in call.args[0]
-    assert "01.10.2026 05:30 (UTC+5)" in call.args[0]
+    assert "📅 01.10.2026 05:30" in call.args[0]
+    assert call.kwargs["link_preview_options"].is_disabled is True
 
 
 async def test_notify_menu_toggle_and_dismiss_button() -> None:
@@ -398,7 +400,8 @@ def test_gpn_message_builders_include_2gis_links_and_escape_values() -> None:
     station_list = build_fuel_stations_message("95", ("95",), [current_station])
 
     assert "Республики &lt;1&gt;" in availability
-    assert "https://2gis.ru/?m=65.5%2C57.1%2F17&traffic" in availability
+    assert "https://2gis.ru/geo/65.5,57.1" in availability
+    assert "https://2gis.ru/geo/65.5,57.1" in station_list
     assert "Республики &lt;1&gt;" in station_list
     assert build_fuel_keyboard({"95": ("95",)}).inline_keyboard[0][0].text == "⛽ 95"
     assert DISMISS_KEYBOARD.inline_keyboard[0][0].text == "❌ Закрыть"

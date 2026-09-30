@@ -1,12 +1,11 @@
 import contextlib
 import html
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Message
 
 from src.api.telegram.callbacks import GpnFuelCallback, GpnNotifyCallback
 from src.core.gpn import FuelAvailability, Station
@@ -73,6 +72,7 @@ async def handle_fuel_selection(
         await callback_query.message.edit_text(
             build_fuel_stations_message(callback_data.group_key, oil_names, stations, gpn_service.updated_at),
             reply_markup=DISMISS_KEYBOARD,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
 
 
@@ -126,6 +126,7 @@ def build_fuel_keyboard(fuel_groups: dict[str, tuple[str, ...]]) -> InlineKeyboa
         for group_key in fuel_groups
     ]
     rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data=DISMISS_CALLBACK_DATA)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -178,5 +179,4 @@ def build_fuel_stations_message(
 
 
 def build_2gis_url(station: Station) -> str:
-    coordinates = quote(f"{station.longitude},{station.latitude}")
-    return f"https://2gis.ru/?m={coordinates}%2F17&traffic"
+    return f"https://2gis.ru/geo/{station.longitude},{station.latitude}"

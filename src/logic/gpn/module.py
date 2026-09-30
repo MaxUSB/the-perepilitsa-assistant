@@ -3,6 +3,7 @@ import contextlib
 import logging
 
 from aiogram import Bot, Router
+from aiogram.types import LinkPreviewOptions
 
 from src.api.telegram.gpn import DISMISS_KEYBOARD, build_availability_message, create_gpn_router
 from src.core.gpn import GpnConfig
@@ -68,6 +69,7 @@ class GpnModule:
                     chat_id=recipient_id,
                     text=build_availability_message(selected),
                     reply_markup=DISMISS_KEYBOARD,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True),
                 )
             except asyncio.CancelledError:
                 raise
